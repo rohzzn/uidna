@@ -92,6 +92,15 @@ Because every node of a state was captured together, nodes share the state's sin
 `provenance` instead of carrying one each. Values derived from nodes (tokens, layout
 constraints, component boxes) are wrapped individually.
 
+Content of a closed `<details>` element (everything but its summary) is recorded with
+`box: null` and `visible: false` even when Chromium keeps a retained layout box for it,
+so a derived state that opens the panel shows the panel's nodes becoming visible.
+
+Tokens are measured over every state, including hover and focus states. Layout
+constraints and component instances are measured over base states only; derived states
+repeat the same structure and would multiply the document by the number of recorded
+interactions.
+
 ```json
 {
   "id": "n7",

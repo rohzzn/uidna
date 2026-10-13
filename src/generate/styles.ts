@@ -83,12 +83,18 @@ function innerSize(node: UiNode, style: StyleRecord): { width: number; height: n
   };
 }
 
-/** Bounding extent of the rendered children including their margins. */
-function childrenExtent(children: NodeView['children']): { width: number; height: number } | null {
+/**
+ * Bounding extent of the rendered children including their margins, plus the
+ * height without the outermost vertical margins (a block container's first
+ * top margin and last bottom margin collapse through it and do not add height).
+ */
+function childrenExtent(children: NodeView['children']): { width: number; height: number; coreHeight: number } | null {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
   let maxY = Number.NEGATIVE_INFINITY;
+  let minYBox = Number.POSITIVE_INFINITY;
+  let maxYBox = Number.NEGATIVE_INFINITY;
   let any = false;
   for (const child of children) {
     const box = child.node.box;
@@ -98,9 +104,11 @@ function childrenExtent(children: NodeView['children']): { width: number; height
     maxX = Math.max(maxX, box.x + box.width + px(child.style, 'margin-right'));
     minY = Math.min(minY, box.y - px(child.style, 'margin-top'));
     maxY = Math.max(maxY, box.y + box.height + px(child.style, 'margin-bottom'));
+    minYBox = Math.min(minYBox, box.y);
+    maxYBox = Math.max(maxYBox, box.y + box.height);
   }
   if (!any) return null;
-  return { width: maxX - minX, height: maxY - minY };
+  return { width: maxX - minX, height: maxY - minY, coreHeight: maxYBox - minYBox };
 }
 
 function displayOf(view: { style: StyleRecord; renderedTag: string }): string {
@@ -108,7 +116,7 @@ function displayOf(view: { style: StyleRecord; renderedTag: string }): string {
 }
 
 /** Decide whether `width` is evidence of an authored size. Returns the value to emit or null. */
-function widthToEmit(view: NodeView, extentMismatch: { width: boolean; height: boolean; allEmpty: boolean }): string | null {
+function widthToEmit(view: NodeView, extentMismatch: { width: boolean; height: boolean; allEmpty: boolean; overflow: boolean }): string | null {
   const { node, style } = view;
   const value = style.width;
   if (value === undefined || value === 'auto' || !node.box) return null;
@@ -143,7 +151,7 @@ function widthToEmit(view: NodeView, extentMismatch: { width: boolean; height: b
 }
 
 /** Decide whether `height` is evidence of an authored size. Returns the value to emit or null. */
-function heightToEmit(view: NodeView, extentMismatch: { width: boolean; height: boolean; allEmpty: boolean }): string | null {
+function heightToEmit(view: NodeView, extentMismatch: { width: boolean; height: boolean; allEmpty: boolean; overflow: boolean }): string | null {
   const { node, style } = view;
   const value = style.height;
   if (value === undefined || value === 'auto' || !node.box) return null;
@@ -163,18 +171,28 @@ function heightToEmit(view: NodeView, extentMismatch: { width: boolean; height: 
   const maxHeight = parsePx(styleValue(style, 'max-height'));
   if (maxHeight !== null && Math.abs(maxHeight - node.box.height) <= 1) return null;
   if (node.text !== null) return null;
-  if (extentMismatch.height) return value;
+  // A container with flowing children only proves an authored height when the content does
+  // not fit (clipping or scrolling); extra space can be collapsed margins, so it is not evidence.
+  if (extentMismatch.overflow) return value;
   return extentMismatch.width && extentMismatch.allEmpty ? value : null;
 }
 
 /** Compare the content box with the children's extent (including margins). */
-function extentMismatchOf(view: NodeView): { width: boolean; height: boolean; allEmpty: boolean } {
+function extentMismatchOf(view: NodeView): { width: boolean; height: boolean; allEmpty: boolean; overflow: boolean } {
   const inner = view.node.box ? innerSize(view.node, view.style) : null;
   const extent = childrenExtent(view.children);
   const allEmpty = view.children.length > 0 && view.children.every((child) => isEmptyNode(child.node));
-  if (inner === null) return { width: false, height: false, allEmpty };
-  if (extent === null) return { width: view.children.length > 0 && inner.width > 1, height: view.children.length > 0 && inner.height > 1, allEmpty };
-  return { width: Math.abs(extent.width - inner.width) > 1.5, height: Math.abs(extent.height - inner.height) > 1.5, allEmpty };
+  if (inner === null) return { width: false, height: false, allEmpty, overflow: false };
+  if (extent === null) {
+    const nonEmptyChildren = view.children.length > 0;
+    return { width: nonEmptyChildren && inner.width > 1, height: nonEmptyChildren && inner.height > 1, allEmpty, overflow: false };
+  }
+  // The content height is only evidence of an authored height when it matches neither the
+  // children's full extent nor the extent without collapsed outer margins; content that does
+  // not fit (overflow) is the strongest evidence.
+  const heightMismatch = Math.abs(extent.height - inner.height) > 1.5 && Math.abs(extent.coreHeight - inner.height) > 1.5;
+  const overflow = inner.height < extent.coreHeight - 1.5;
+  return { width: Math.abs(extent.width - inner.width) > 1.5, height: heightMismatch, allEmpty, overflow };
 }
 
 /**

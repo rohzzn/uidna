@@ -19,10 +19,10 @@ export interface BudgetLimits {
 
 /** Default limits applied when the caller gives none. */
 export const DEFAULT_BUDGET: BudgetLimits = {
-  timeMs: 180_000,
+  timeMs: 600_000,
   pages: 1,
-  actions: 60,
-  resources: 400,
+  actions: 200,
+  resources: 2000,
 };
 
 /** Usage counters at a point in time. */

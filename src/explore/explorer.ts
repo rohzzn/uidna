@@ -821,50 +821,76 @@ export async function exploreInteractions(input: ExploreInput): Promise<Result<E
   return ok({ scan, record, transitions: run.transitions, captures: run.captures, newStateIds: [...run.newStateIds] });
 }
 
-/** Explore the base states in order, stopping (and listing the rest as skipped) when the budget ends or the browser fails. */
+/** Interaction kinds in the order they are explored: state-changing clicks first, so a tight budget covers them at every viewport. */
+const ROUNDS: readonly Kind[] = ['click', 'key', 'hover', 'focus'];
+
+interface ScheduleEntry {
+  readonly base: StateRecord;
+  readonly kind: Kind;
+}
+
+/**
+ * Explore the base states in rounds (every base state's clicks, then page keys, hovers and
+ * focus), stopping and listing the rest as skipped when the budget ends or the browser fails.
+ */
 async function exploreBases(run: Run, bases: readonly StateRecord[], stored: ReadonlyMap<string, CapturedState>): Promise<void> {
-  for (const [index, base] of bases.entries()) {
-    const storedCapture = stored.get(base.stateId);
+  const schedule: ScheduleEntry[] = ROUNDS.flatMap((kind) => bases.map((base) => ({ base, kind })));
+  const counted = new Set<string>();
+  const failed = new Set<string>();
+  for (const [position, entry] of schedule.entries()) {
+    const storedCapture = stored.get(entry.base.stateId);
+    if (storedCapture === undefined || failed.has(entry.base.stateId)) continue;
     const stop = stopReason(run);
     if (stop !== null) {
-      markRemaining(run, bases.slice(index), stored, [], stop);
+      markRemaining(run, schedule.slice(position), stored, [], stop, failed);
       return;
     }
-    if (storedCapture === undefined) continue; // checked by the caller
-    const loaded = await loadBase(run, base, storedCapture);
+    const loaded = await loadBase(run, entry.base, storedCapture);
     if (!loaded.ok) {
       run.partial = true;
-      run.limitations.push(`base state ${base.stateId} not explored: ${describeError(loaded.error)}`);
-      for (const planned of plansFor(storedCapture, run.denyNames).planned) run.skipped.push(skippedRecord(base.stateId, planned, bodyOf(storedCapture), 'base state could not be loaded'));
+      run.limitations.push(`base state ${entry.base.stateId} not explored: ${describeError(loaded.error)}`);
+      failed.add(entry.base.stateId);
+      const laterKinds = new Set(ROUNDS.slice(ROUNDS.indexOf(entry.kind)));
+      for (const planned of plansFor(storedCapture, run.denyNames).planned.filter((p) => laterKinds.has(p.kind))) {
+        run.skipped.push(skippedRecord(entry.base.stateId, planned, bodyOf(storedCapture), 'base state could not be loaded'));
+      }
       if (run.aborted !== null) {
-        // The browser can no longer be driven: later base states would fail for the same reason, misattributed to themselves.
+        // The browser can no longer be driven: later entries would fail for the same reason, misattributed to themselves.
         run.limitations.push(`run ended early: ${run.aborted}`);
-        markRemaining(run, bases.slice(index + 1), stored, [], { reason: 'browser failure', detail: run.aborted });
+        markRemaining(run, schedule.slice(position + 1), stored, [], { reason: 'browser failure', detail: run.aborted }, failed);
         return;
       }
       continue;
     }
     const ref = loaded.value;
-    const plans = plansFor(ref.capture, run.denyNames);
-    run.progress.total += plans.planned.length - plansFor(storedCapture, run.denyNames).planned.length;
-    run.discovered += ref.capture.nodes.filter((node) => node.interactive && node.visible).length;
-    for (const entry of plans.skipped) {
-      run.skipped.push({ stateId: ref.stateId, nodeId: entry.node.id, nodePath: entry.node.path, role: entry.node.role, name: entry.node.name, tag: entry.node.tag, reason: entry.reason });
+    const all = plansFor(ref.capture, run.denyNames);
+    if (!counted.has(entry.base.stateId)) {
+      counted.add(entry.base.stateId);
+      run.progress.total += all.planned.length - plansFor(storedCapture, run.denyNames).planned.length;
+      run.discovered += ref.capture.nodes.filter((node) => node.interactive && node.visible).length;
+      for (const skipped of all.skipped) {
+        run.skipped.push({ stateId: ref.stateId, nodeId: skipped.node.id, nodePath: skipped.node.path, role: skipped.node.role, name: skipped.node.name, tag: skipped.node.tag, reason: skipped.reason });
+      }
     }
-    for (const [position, planned] of plans.planned.entries()) {
+    const plans = all.planned.filter((p) => p.kind === entry.kind);
+    for (const [index, planned] of plans.entries()) {
       const stopNow = stopReason(run);
       if (stopNow !== null) {
-        markRemaining(run, bases.slice(index + 1), stored, plans.planned.slice(position).map((p) => ({ stateId: ref.stateId, planned: p, body: bodyOf(ref.capture) })), stopNow);
+        markRemaining(run, schedule.slice(position + 1), stored, plans.slice(index).map((p) => ({ stateId: ref.stateId, planned: p, body: bodyOf(ref.capture) })), stopNow, failed);
         return;
       }
       const aborted = await runAction(run, ref, planned);
       if (aborted !== null) {
         run.partial = true;
         run.limitations.push(`run ended early: ${aborted}`);
-        markRemaining(run, bases.slice(index + 1), stored, plans.planned.slice(position + 1).map((p) => ({ stateId: ref.stateId, planned: p, body: bodyOf(ref.capture) })), {
-          reason: 'browser failure',
-          detail: aborted,
-        });
+        markRemaining(
+          run,
+          schedule.slice(position + 1),
+          stored,
+          plans.slice(index + 1).map((p) => ({ stateId: ref.stateId, planned: p, body: bodyOf(ref.capture) })),
+          { reason: 'browser failure', detail: aborted },
+          failed,
+        );
         return;
       }
     }
@@ -874,18 +900,21 @@ async function exploreBases(run: Run, bases: readonly StateRecord[], stored: Rea
 /** List every interaction that will not run as skipped with the stop reason, and mark the run partial. */
 function markRemaining(
   run: Run,
-  bases: readonly StateRecord[],
+  entries: readonly ScheduleEntry[],
   stored: ReadonlyMap<string, CapturedState>,
   current: readonly { stateId: string; planned: Planned; body: Pick<UiNode, 'id' | 'path' | 'role' | 'name' | 'tag'> }[],
   stop: Stop,
+  failed: ReadonlySet<string>,
 ): void {
   run.partial = true;
   const reason = `${stop.reason} (${stop.detail})`;
   if (!run.limitations.includes(`exploration stopped: ${reason}`)) run.limitations.push(`exploration stopped: ${reason}`);
   for (const entry of current) run.skipped.push(skippedRecord(entry.stateId, entry.planned, entry.body, reason));
-  for (const base of bases) {
-    const capture = stored.get(base.stateId);
-    if (capture === undefined) continue;
-    for (const planned of plansFor(capture, run.denyNames).planned) run.skipped.push(skippedRecord(base.stateId, planned, bodyOf(capture), reason));
+  for (const entry of entries) {
+    const capture = stored.get(entry.base.stateId);
+    if (capture === undefined || failed.has(entry.base.stateId)) continue;
+    for (const planned of plansFor(capture, run.denyNames).planned.filter((p) => p.kind === entry.kind)) {
+      run.skipped.push(skippedRecord(entry.base.stateId, planned, bodyOf(capture), reason));
+    }
   }
 }

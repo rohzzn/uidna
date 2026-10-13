@@ -470,9 +470,13 @@ export function assembleDna(input: AssembleInput): Result<UiDnaDocument> {
   const navigation = buildNavigation(pageId, pageUrl, widest, widestContext, limitations);
   const layout = buildLayout(pageId, widest, widestContext);
 
+  // Tokens see every state (hover and focus colors are tokens too); components and layout
+  // constraints are measured on base states only, since derived states repeat the same
+  // structure and would multiply the document by the number of recorded interactions.
+  const baseCaptures = new Map(bases.map((s) => [s.record.stateId, s.capture]));
   const tokens = extractTokens(orderedCaptures, { capturedAt, evidenceIdByState: evidence, baseStateIds: bases.map((s) => s.record.stateId) });
-  const components = findComponents(orderedCaptures, { minInstances: 2, capturedAt, evidenceIdByState: evidence });
-  const layoutConstraints = computeLayout(orderedCaptures, { evidenceIdByState: evidence });
+  const components = findComponents(baseCaptures.size > 0 ? baseCaptures : orderedCaptures, { minInstances: 2, capturedAt, evidenceIdByState: evidence });
+  const layoutConstraints = computeLayout(baseCaptures.size > 0 ? baseCaptures : orderedCaptures, { evidenceIdByState: evidence });
   const behavior = carryInferredBehavior(deriveBehavior(states, transitions), previous, new Set(transitions.map((t) => t.id)));
   const assets = buildAssets(ordered, previous, evidence, capturedAt);
 

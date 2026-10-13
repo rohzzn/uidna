@@ -182,7 +182,8 @@ describe('generateProject', () => {
   it('uses controlled <details> for the accordion and hover variants for the nav link', async () => {
     const main = await read(outDir, 'src/sections/Main.tsx');
     expect(main).toContain('open={state02} onToggle={(event) => setState02(event.currentTarget.open)}');
-    expect(main).toContain("${state02 ? \"after:content-['−']\" : \"after:content-['+']\"}");
+    expect(main).toMatch(/<details className="[^"]*(?:^| )group(?: |")/);
+    expect(main).toContain("group-open:after:content-['−']");
     const navItem = await read(outDir, 'src/components/NavItem.tsx');
     expect(navItem).toContain('hover:text-color-02');
   });

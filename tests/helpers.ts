@@ -35,7 +35,7 @@ export async function runCli(args: string[], options: { cwd?: string; timeoutMs?
   const cli = join(REPO_ROOT, 'src', 'cli.ts');
   const result = await runCommand(process.execPath, [join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), cli, '--json', ...args], {
     cwd: options.cwd ?? REPO_ROOT,
-    timeoutMs: options.timeoutMs ?? 600_000,
+    timeoutMs: options.timeoutMs ?? 1_200_000,
     maxBufferBytes: 50 * 1024 * 1024,
   });
   if (!result.ok) throw new Error(result.error.message);

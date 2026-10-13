@@ -117,6 +117,25 @@ function hiddenByAncestor(byPath: ReadonlyMap<string, UiNode>, path: string): bo
   return path !== '' && byPath.get('')?.box === null;
 }
 
+/**
+ * True when an ancestor <details> of `path` changed its `open` attribute: the browser shows and
+ * hides its content natively. The details' own <summary> is not content and is never implied.
+ */
+function toggledDetailsAncestor(fromByPath: ReadonlyMap<string, UiNode>, toByPath: ReadonlyMap<string, UiNode>, path: string): boolean {
+  const segments = path.split('/');
+  const self = fromByPath.get(path);
+  for (let depth = segments.length - 1; depth >= 1; depth -= 1) {
+    const ancestorPath = segments.slice(0, depth).join('/');
+    const before = fromByPath.get(ancestorPath);
+    const after = toByPath.get(ancestorPath);
+    if (before?.tag === 'details' && after?.tag === 'details' && (before.attrs.open === undefined) !== (after.attrs.open === undefined)) {
+      const isOwnSummary = self?.tag === 'summary' && depth === segments.length - 1;
+      return !isOwnSummary;
+    }
+  }
+  return false;
+}
+
 function diffStates(
   model: GenerationModel,
   from: UiState,
@@ -151,7 +170,9 @@ function diffStates(
     const styleChanged = stableStringify(from.styles[nodeFrom.styleId] ?? {}) !== stableStringify(to.styles[nodeTo.styleId] ?? {});
     // A node that is unrendered only because an ancestor is unrendered needs no classes of its own:
     // its visibility follows the ancestor, which carries the change.
-    const impliedByAncestor = !styleChanged && (hiddenByAncestor(fromIndex.byPath, path) || hiddenByAncestor(toIndex.byPath, path));
+    const impliedByAncestor =
+      !styleChanged &&
+      (hiddenByAncestor(fromIndex.byPath, path) || hiddenByAncestor(toIndex.byPath, path) || toggledDetailsAncestor(fromIndex.byPath, toIndex.byPath, path));
     if (!impliedByAncestor && (styleChanged || nodeFrom.pseudo !== undefined || nodeTo.pseudo !== undefined || nodeFrom.box === null || nodeTo.box === null)) {
       const viewFrom = viewInState(gn, from, fromIndex.byPath);
       const viewTo = viewInState(gn, to, toIndex.byPath);
@@ -234,8 +255,6 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
       report(transition, 'not-implemented', 'the target is not rendered', null);
       continue;
     }
-    const prefix = slot.breakpoint === null ? '' : `${slot.breakpoint}:`;
-
     if (action.type === 'hover' || action.type === 'focus') {
       const diff = diffStates(model, fromState, toState, '', tokens);
       if (diff === null) {
@@ -261,7 +280,8 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
     }
 
     // click
-    const diff = diffStates(model, fromState, toState, prefix, tokens);
+    // Like hover and focus variants, click-state classes are observed at one width and applied at every width.
+    const diff = diffStates(model, fromState, toState, '', tokens);
     if (diff === null) {
       report(transition, 'not-implemented', 'nodes were added or removed between the states; the baseline only reproduces attribute, text and style changes on existing nodes', null);
       continue;
@@ -276,22 +296,31 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
       report(transition, 'not-implemented', `node ${unrendered.change.path} changed but is not rendered`, null);
       continue;
     }
-    const foreign = locations.filter((l) => l.location !== null && (l.location.file !== location.file || l.location.instanceRoot !== location.instanceRoot));
+    // details/summary: the browser toggles `open` natively. The state lives with the <details>
+    // element; the summary's own changes (e.g. a marker in ::after) become `group-open:` variants
+    // so they need no state even when the summary is a separate component.
+    const parent = target.parent;
+    const isDetails = target.renderedTag === 'summary' && parent?.renderedTag === 'details';
+    const anchor = isDetails && parent ? (resolve(parent.path) ?? location) : location;
+    const inSummary = (path: string): boolean => path === target.path || path.startsWith(`${target.path}/`);
+    const foreign = locations.filter(
+      (l) =>
+        l.location !== null &&
+        !(l.location.file === anchor.file && l.location.instanceRoot === anchor.instanceRoot) &&
+        !(isDetails && inSummary(l.change.path)),
+    );
     if (foreign.length > 0) {
       const files = [...new Set(foreign.map((l) => l.location?.file ?? '?'))].join(', ');
-      report(transition, 'not-implemented', `changes span ${location.file} and ${files}; state hoisting across files is not implemented in the baseline`, null);
+      report(transition, 'not-implemented', `changes span ${anchor.file} and ${files}; state hoisting across files is not implemented in the baseline`, null);
       continue;
     }
 
-    // details/summary: controlled `open` on the details element.
-    const parent = target.parent;
-    const detailsChange =
-      target.renderedTag === 'summary' && parent?.renderedTag === 'details' ? locations.find((l) => l.change.path === parent.path && l.change.attrs.has('open')) : undefined;
+    const detailsChange = isDetails && parent ? locations.find((l) => l.change.path === parent.path && l.change.attrs.has('open')) : undefined;
     const mode: StateVar['mode'] = detailsChange ? 'details' : 'toggle';
-    const key = `${location.file}|${location.renderPath}|${mode}`;
+    const key = `${anchor.file}|${anchor.renderPath}|${mode}`;
     const already = implementedKeys.get(key);
     if (already) {
-      report(transition, 'implemented', `covered by ${already.name} (${already.transitionId}): same target in the same ${location.instanceRoot === null ? 'section' : 'component'}`, location.file);
+      report(transition, 'implemented', `covered by ${already.name} (${already.transitionId}): same target in the same ${anchor.instanceRoot === null ? 'section' : 'component'}`, anchor.file);
       continue;
     }
     const escape = transitions.find((t) => t.action.type === 'key' && t.action.key === 'Escape' && t.from === transition.to && t.to === transition.from && !t.sideEffects);
@@ -303,20 +332,21 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
       setter: `set${name.charAt(0).toUpperCase()}${name.slice(1)}`,
       transitionId: transition.id,
       escapeTransitionId: escape?.id ?? null,
-      scopeKey: location.file,
+      scopeKey: anchor.file,
       mode,
       description: `${describeAction(transition)} on ${describeTarget(action.target)} (${transition.id})`,
     };
     implementedKeys.set(key, state);
     if (escape) escapeReverts.add(escape.id);
-    const vars = stateVars.get(location.file) ?? [];
+    const vars = stateVars.get(anchor.file) ?? [];
     vars.push(state);
-    stateVars.set(location.file, vars);
+    stateVars.set(anchor.file, vars);
 
     const wired: string[] = [];
+    const notReproduced: string[] = [];
     if (mode === 'details' && parent) {
-      const detailsLocation = resolve(parent.path);
-      if (detailsLocation) behaviorAt(detailsLocation.renderPath).detailsState = state;
+      behaviorAt(anchor.renderPath).detailsState = state;
+      behaviorAt(anchor.renderPath).extraClasses.add('group');
       wired.push(`<details open={${name}}> with onToggle`);
     } else {
       behaviorAt(location.renderPath).clickToggle = state;
@@ -325,6 +355,16 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
     for (const { change, location: changeLocation } of locations) {
       if (changeLocation === null) continue;
       const behavior = behaviorAt(changeLocation.renderPath);
+      if (mode === 'details' && inSummary(change.path)) {
+        // The summary may live in another file: express its open-state styling as group-open: variants.
+        if (change.classes !== null) {
+          for (const cls of change.classes.whenTrue) behavior.extraClasses.add(`group-open:${cls}`);
+          wired.push(`group-open: classes on ${change.path} (${change.classes.whenTrue.join(' ')})`);
+        }
+        for (const attr of change.attrs.keys()) notReproduced.push(`${attr} on ${change.path} (summary attribute changes need state across files)`);
+        if (change.text !== null) notReproduced.push(`text on ${change.path} (summary text changes need state across files)`);
+        continue;
+      }
       for (const [attr, values] of change.attrs) {
         if (mode === 'details' && attr === 'open' && change.path === parent?.path) continue;
         behavior.attrConditions.set(attr, { state, whenTrue: values.to, whenFalse: values.from });
@@ -342,9 +382,10 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
     const notes: string[] = [];
     notes.push(escape ? `Escape resets it (${escape.id})` : 'no Escape revert was observed');
     notes.push(reverseClick ? `the reverse click was observed (${reverseClick.id})` : 'toggling back is assumed, the reverse click was not observed');
-    if (location.instanceRoot !== null) notes.push('state lives in the component, so every instance toggles independently');
+    if (anchor.instanceRoot !== null) notes.push('state lives in the component, so every instance toggles independently');
     if (diff.skippedProperties > 0) notes.push(`${diff.skippedProperties} changed propert${diff.skippedProperties === 1 ? 'y' : 'ies'} could not be expressed as classes`);
-    report(transition, 'implemented', `${name}: ${wired.join(', ')}; ${notes.join('; ')}`, location.file);
+    if (notReproduced.length > 0) notes.push(`not reproduced: ${notReproduced.join(', ')}`);
+    report(transition, 'implemented', `${name}: ${wired.join(', ')}; ${notes.join('; ')}`, anchor.file);
   }
 
   return { byPath, stateVars, reports };
