@@ -132,11 +132,11 @@ The full catalog, generated from the contracts, is in [`docs/tools.md`](docs/too
 ## A sample investigation
 
 <!-- numbers:begin -->
-Measured on Fixture A (`http://127.0.0.1:64942/`) by scan `scan_20261013_afeec6` with tool version 0.1.0:
+Measured on Fixture A (`http://127.0.0.1:65125/`) by scan `scan_20261013_176e54` with tool version 0.1.0:
 
 | Step | Result |
 | --- | --- |
-| scan | 3 base states at 1280, 768, 390 px; 71 / 71 / 71 nodes; 1 asset; 117.7 s of browser time for scan and explore together |
+| scan | 3 base states at 1280, 768, 390 px; 71 / 71 / 71 nodes; 1 asset; 113.1 s of browser time for scan and explore together |
 | explore (safe) | 36 interactive elements discovered, 88 interactions performed, 69 produced a new state, 44 skipped with a reason; 73 transitions, 69 derived states |
 | tokens | 10 colors, 17 typography styles, 11 font sizes, 12 spacing values, 4 radii, 1 shadow, 2 breakpoints |
 | components | 7 candidates, 65 instances (largest: Component01 with 17) |
