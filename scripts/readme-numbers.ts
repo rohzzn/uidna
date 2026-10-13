@@ -45,7 +45,7 @@ lines.push(`Measured on Fixture A (\`${doc.target.url}\`) by scan \`${scanId}\` 
 lines.push('');
 lines.push('| Step | Result |');
 lines.push('| --- | --- |');
-lines.push(`| scan | ${base.length} base states at ${base.map((s) => s.viewport.width).join(', ')} px; ${base.map((s) => s.nodeCount).join(' / ')} nodes; ${doc.assets.length} asset${doc.assets.length === 1 ? '' : 's'}; budget used ${doc.target.budget.used.timeMs} ms |`);
+lines.push(`| scan | ${base.length} base states at ${base.map((s) => s.viewport.width).join(', ')} px; ${base.map((s) => s.nodeCount).join(' / ')} nodes; ${doc.assets.length} asset${doc.assets.length === 1 ? '' : 's'}; ${(doc.target.budget.used.timeMs / 1000).toFixed(1)} s of browser time for scan and explore together |`);
 if (explore.ok && explore.value) {
   const c = explore.value.coverage;
   lines.push(`| explore (safe) | ${c.discovered} interactive elements discovered, ${c.explored} interactions performed, ${c.changed} produced a new state, ${c.skipped} skipped with a reason; ${doc.states.transitions.length} transitions, ${derived.length} derived states |`);

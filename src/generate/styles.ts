@@ -173,7 +173,10 @@ function heightToEmit(view: NodeView, extentMismatch: { width: boolean; height: 
   if (node.text !== null) return null;
   // A container with flowing children only proves an authored height when the content does
   // not fit (clipping or scrolling); extra space can be collapsed margins, so it is not evidence.
+  // A control whose children are all empty decorative boxes (a hamburger button, an icon
+  // wrapper) has no flowing content, so its measured height is the authored one.
   if (extentMismatch.overflow) return value;
+  if (extentMismatch.height && extentMismatch.allEmpty) return value;
   return extentMismatch.width && extentMismatch.allEmpty ? value : null;
 }
 

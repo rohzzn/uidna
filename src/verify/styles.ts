@@ -123,7 +123,17 @@ export function compareStyles(
       if (difference !== null) differences.push(difference);
     }
   };
-  each(COLOR_PROPERTIES, (property, a, b) => compareColor(property, a, b, thresholds.colorDistance));
+  const borderRenders = (style: Readonly<Record<string, string>> | undefined, side: string): boolean => {
+    const width = parsePx(styleValue(style, `border-${side}-width`) ?? '0px') ?? 0;
+    const borderStyle = styleValue(style, `border-${side}-style`) ?? 'none';
+    return width > 0 && borderStyle !== 'none' && borderStyle !== 'hidden';
+  };
+  each(COLOR_PROPERTIES, (property, a, b) => {
+    // A border color only renders when the border has a width and a style on at least one side.
+    const side = /^border-(top|right|bottom|left)-color$/.exec(property)?.[1];
+    if (side !== undefined && !borderRenders(original, side) && !borderRenders(generated, side)) return null;
+    return compareColor(property, a, b, thresholds.colorDistance);
+  });
   each(TYPOGRAPHY_PROPERTIES, compareTypography);
   each(LAYOUT_PROPERTIES, (property, a, b) => comparePxOrText(property, 'layout', a, b, thresholds.boxDriftPx));
   return { compared, differences };
