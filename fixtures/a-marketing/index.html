@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lumen — Notes that think with you</title>
+  <meta name="description" content="Fixture A for UI DNA: a small marketing page with a responsive navbar, hero, cards, an image and an FAQ accordion.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar" aria-label="Primary">
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">Lumen</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-menu" aria-label="Open menu">
+        <span class="nav-toggle-bar" aria-hidden="true"></span>
+        <span class="nav-toggle-bar" aria-hidden="true"></span>
+        <span class="nav-toggle-bar" aria-hidden="true"></span>
+      </button>
+      <ul class="nav-menu" id="primary-menu">
+        <li><a class="nav-link" href="#features">Features</a></li>
+        <li><a class="nav-link" href="#pricing">Pricing</a></li>
+        <li><a class="nav-link" href="#faq">FAQ</a></li>
+        <li><a class="nav-link nav-link-accent" href="#start">Get started</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Now in public beta</p>
+        <h1 class="hero-title" id="hero-title">Notes that think with you</h1>
+        <p class="hero-lead">Lumen keeps your ideas connected. Write, link and revisit, and let structure appear on its own.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#start">Start writing</a>
+          <a class="button button-secondary" href="#features">See how it works</a>
+        </div>
+      </div>
+      <figure class="hero-figure">
+        <img class="hero-image" src="assets/illustration.svg" alt="Abstract illustration of connected notes" width="520" height="400">
+      </figure>
+    </section>
+
+    <section class="features" id="features" aria-labelledby="features-title">
+      <h2 class="section-title" id="features-title">Everything in one place</h2>
+      <div class="card-grid">
+        <article class="card">
+          <div class="card-icon card-icon-blue" aria-hidden="true"></div>
+          <h3 class="card-title">Capture quickly</h3>
+          <p class="card-body">Jot down a thought in a second. Lumen files it where it belongs and keeps it searchable.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon card-icon-green" aria-hidden="true"></div>
+          <h3 class="card-title">Link naturally</h3>
+          <p class="card-body">Mention a note and the link is made. Backlinks show you what connects to what.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon card-icon-amber" aria-hidden="true"></div>
+          <h3 class="card-title">Review calmly</h3>
+          <p class="card-body">A daily digest surfaces the notes that matter today, so nothing important is lost.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="faq" id="faq" aria-labelledby="faq-title">
+      <h2 class="section-title" id="faq-title">Frequently asked questions</h2>
+      <div class="accordion">
+        <details class="accordion-item">
+          <summary class="accordion-summary">Is there a free plan?</summary>
+          <div class="accordion-panel">
+            <p>Yes. The free plan includes unlimited notes on one device and seven days of history.</p>
+          </div>
+        </details>
+        <details class="accordion-item">
+          <summary class="accordion-summary">Can I export my notes?</summary>
+          <div class="accordion-panel">
+            <p>Every note can be exported as Markdown at any time, individually or as a full archive.</p>
+          </div>
+        </details>
+        <details class="accordion-item">
+          <summary class="accordion-summary">Does Lumen work offline?</summary>
+          <div class="accordion-panel">
+            <p>Lumen is offline first. Changes sync when you are back online, with no merge conflicts.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer" id="start">
+    <div class="footer-inner">
+      <p class="footer-brand">Lumen</p>
+      <ul class="footer-links">
+        <li><a class="footer-link" href="#top">Home</a></li>
+        <li><a class="footer-link" href="#features">Features</a></li>
+        <li><a class="footer-link" href="#faq">FAQ</a></li>
+      </ul>
+      <p class="footer-copy">Fixture A for UI DNA. No real product.</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

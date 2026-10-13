@@ -1,0 +1,79 @@
+{
+  "name": "uidna",
+  "version": "0.1.0",
+  "description": "Reverse-engineer any user interface into a UI DNA document, rebuild it as code you own, and prove it with a DiffReport. MCP server and CLI for coding agents.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "bin": {
+    "uidna": "./dist/cli.js"
+  },
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/main.d.ts",
+      "import": "./dist/main.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "docs",
+    "DISCLAIMER.md",
+    "SECURITY.md",
+    "README.md"
+  ],
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @uidna/schema && tsc -p tsconfig.build.json",
+    "typecheck": "npm run typecheck -w @uidna/schema && tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:e2e": "vitest run --project e2e",
+    "docs:catalog": "tsx scripts/gen-catalog.ts",
+    "docs:check": "tsx scripts/gen-catalog.ts --check",
+    "fixture:serve": "node fixtures/serve.mjs fixtures/a-marketing",
+    "uidna": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@uidna/schema": "^0.1.0",
+    "commander": "^15.0.0",
+    "pixelmatch": "^8.0.0",
+    "playwright": "^1.64.0",
+    "pngjs": "^7.0.0",
+    "ssim.js": "^3.5.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^24.0.0",
+    "@types/pngjs": "^6.0.5",
+    "eslint": "^9.39.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^4.1.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/uidna/uidna"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "reverse-engineering",
+    "ui",
+    "design-tokens",
+    "playwright",
+    "react",
+    "coding-agents"
+  ]
+}

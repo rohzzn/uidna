@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.uidna/
+coverage/
+*.log
+.DS_Store
+packages/*/dist/
+tests/.tmp/
+uidna-out/

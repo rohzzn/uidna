@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    name: lint, typecheck, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @uidna/schema
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run docs:check
+      - run: npm run test:unit
+
+  loop:
+    name: Phase 1 loop on Fixture A (real Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:e2e
+      - name: Upload loop artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-a-loop
+          path: |
+            tests/.tmp/**/dna.json
+            tests/.tmp/**/diff-report*.json
+            tests/.tmp/**/report.html
+          if-no-files-found: ignore

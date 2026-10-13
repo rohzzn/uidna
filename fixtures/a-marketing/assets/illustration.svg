@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="400" viewBox="0 0 520 400" role="img" aria-label="Abstract illustration of connected notes">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef2ff"/>
+      <stop offset="1" stop-color="#dfe7ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="520" height="400" rx="16" fill="url(#bg)"/>
+  <g stroke="#2f5bea" stroke-width="3" fill="none" stroke-linecap="round">
+    <path d="M120 120 L260 200"/>
+    <path d="M260 200 L400 110"/>
+    <path d="M260 200 L300 300"/>
+    <path d="M120 120 L160 280"/>
+    <path d="M160 280 L300 300"/>
+  </g>
+  <g>
+    <rect x="70" y="90" width="100" height="60" rx="10" fill="#ffffff" stroke="#dfe3ec"/>
+    <rect x="350" y="80" width="100" height="60" rx="10" fill="#ffffff" stroke="#dfe3ec"/>
+    <rect x="210" y="170" width="100" height="60" rx="10" fill="#2f5bea"/>
+    <rect x="110" y="250" width="100" height="60" rx="10" fill="#ffffff" stroke="#dfe3ec"/>
+    <rect x="250" y="270" width="100" height="60" rx="10" fill="#1f9d6a"/>
+  </g>
+  <g fill="#c8d0e0">
+    <rect x="84" y="106" width="60" height="6" rx="3"/>
+    <rect x="84" y="120" width="40" height="6" rx="3"/>
+    <rect x="364" y="96" width="60" height="6" rx="3"/>
+    <rect x="364" y="110" width="44" height="6" rx="3"/>
+    <rect x="124" y="266" width="60" height="6" rx="3"/>
+    <rect x="124" y="280" width="36" height="6" rx="3"/>
+  </g>
+  <g fill="#ffffff" opacity="0.9">
+    <rect x="224" y="186" width="60" height="6" rx="3"/>
+    <rect x="224" y="200" width="44" height="6" rx="3"/>
+    <rect x="264" y="286" width="60" height="6" rx="3"/>
+    <rect x="264" y="300" width="40" height="6" rx="3"/>
+  </g>
+</svg>
