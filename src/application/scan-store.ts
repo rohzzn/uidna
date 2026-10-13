@@ -5,7 +5,7 @@
 import { mkdir, readFile, readdir, stat, writeFile, appendFile, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { z } from 'zod';
-import { parseUiDna, formatIssues, validateUiDna, type UiDnaDocument } from '@uidna/schema';
+import { parseUiDna, formatIssues, isCompatibleVersion, validateUiDna, type UiDnaDocument } from '@uidna/schema';
 import { CapturedStateSchema } from '../browser/schemas.js';
 import type { CapturedState } from '../browser/types.js';
 import { DiffReportSchema, type DiffReport } from '../contracts/diff-report.js';
@@ -138,8 +138,18 @@ export class ScanStore {
   async loadDna(scanId: string): Promise<Result<UiDnaDocument>> {
     const raw = await this.readRaw(scanId, 'dna.json');
     if (!raw.ok) return raw;
+    let json: unknown;
     try {
-      return ok(parseUiDna(JSON.parse(raw.value)));
+      json = JSON.parse(raw.value);
+    } catch (cause) {
+      return err(toError(cause, 'validation', `dna.json of ${scanId} is not JSON`));
+    }
+    const version = (json as { dnaVersion?: unknown }).dnaVersion;
+    if (typeof version === 'string' && !isCompatibleVersion(version)) {
+      return err(uidnaError('unsupported', `dna.json of ${scanId} has dnaVersion ${version}, which this version of uidna cannot read`));
+    }
+    try {
+      return ok(parseUiDna(json));
     } catch (cause) {
       return err(toError(cause, 'validation', `dna.json of ${scanId} is invalid`));
     }
@@ -240,19 +250,20 @@ export class ScanStore {
     if (!(await this.fileExists(scanId, 'evidence/ledger.jsonl'))) return ok({ records: [], malformed: 0 });
     const raw = await this.readRaw(scanId, 'evidence/ledger.jsonl');
     if (!raw.ok) return raw;
-    const records: EvidenceRecord[] = [];
+    const byId = new Map<string, EvidenceRecord>();
     let malformed = 0;
     for (const line of raw.value.split('\n')) {
       if (!line.trim()) continue;
       try {
         const parsed = EvidenceRecordSchema.safeParse(JSON.parse(line));
-        if (parsed.success) records.push(parsed.data as EvidenceRecord);
+        // A record may be appended again with more artifacts; the last line per id wins.
+        if (parsed.success) byId.set(parsed.data.id, parsed.data as EvidenceRecord);
         else malformed += 1;
       } catch {
         malformed += 1;
       }
     }
-    return ok({ records, malformed });
+    return ok({ records: [...byId.values()], malformed });
   }
 
   /** Write any JSON file after validating it with `schema`. */

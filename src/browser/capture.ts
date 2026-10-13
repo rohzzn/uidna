@@ -6,6 +6,7 @@
  * runs the same pipeline without styles, boxes, screenshot or assets, so the
  * digests of an unchanged page are identical to a full capture's.
  */
+import { redactUrl } from './redact.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { CDPSession, Page } from 'playwright';
@@ -104,7 +105,7 @@ export async function capturePage(context: CaptureContext, options: CaptureOptio
   limitations.push(...assets.limitations);
 
   const state: CapturedState = {
-    url: metrics.url,
+    url: redactUrl(metrics.url),
     title: metrics.title,
     viewport: context.viewport,
     capturedAt: context.clock.now().toISOString(),

@@ -326,6 +326,47 @@ function dedupeLimitations(limitations: readonly Limitation[]): Limitation[] {
   return out;
 }
 
+/** Walk a JSON value along pointer segments; numeric segments index arrays. */
+function valueAt(root: unknown, segments: readonly string[]): unknown {
+  let current: unknown = root;
+  for (const segment of segments) {
+    if (Array.isArray(current)) current = current[Number(segment)];
+    else if (current !== null && typeof current === 'object') current = (current as Record<string, unknown>)[segment];
+    else return undefined;
+  }
+  return current;
+}
+
+function isAttributedValue(value: unknown): value is { value: unknown; provenance: unknown; annotation?: unknown } {
+  return value !== null && typeof value === 'object' && 'value' in value && 'provenance' in value;
+}
+
+/**
+ * Re-attach the agent's `annotate` readings from the previous document where the measured
+ * value at the same path is unchanged. A reading whose value changed or moved is not guessed
+ * back into place: it stays in the annotation log and a limitation says so.
+ */
+function reattachAnnotations(document: UiDnaDocument, previous: UiDnaDocument | null | undefined): void {
+  if (!previous) return;
+  for (const record of previous.annotations) {
+    if (record.op !== 'annotate') continue;
+    const segments = record.path.split('/').filter((segment) => segment.length > 0);
+    if (segments[segments.length - 1] !== 'annotation') continue;
+    const valuePath = segments.slice(0, -1);
+    const before = valueAt(previous, valuePath);
+    const after = valueAt(document, valuePath);
+    if (isAttributedValue(before) && isAttributedValue(after) && before.annotation !== undefined && stableStringify(before.value) === stableStringify(after.value)) {
+      (after as { annotation?: unknown }).annotation = structuredClone(before.annotation);
+      continue;
+    }
+    document.limitations.push({
+      kind: 'not-observed',
+      subject: `annotation ${record.id}`,
+      reason: `the agent reading at ${record.path} was not re-attached after re-assembly because the measured value at that path changed or moved; the annotation log keeps it`,
+    });
+  }
+}
+
 /* -------------------------------------------------------------- evidence */
 
 function buildEvidence(states: readonly OrderedState[]): EvidenceRef[] {
@@ -528,6 +569,7 @@ export function assembleDna(input: AssembleInput): Result<UiDnaDocument> {
     annotations,
   };
 
+  reattachAnnotations(document, previous);
   const validation = validateUiDna(document);
   if (!validation.success) {
     const issues = formatIssues(validation);

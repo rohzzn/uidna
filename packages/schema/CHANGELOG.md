@@ -14,7 +14,8 @@ package's version.
   rule that `inferred` values come only from the `agent` source and `unknown`
   values carry a reason instead of a value.
 - Top-level sections: `target`, `app`, `states`, `components`, `visual`,
-  `behavior`, `assets`, `limitations`, `evidence`.
+  `behavior`, `assets`, `limitations`, `evidence`, `annotations` (the log of
+  agent patches applied through `annotate_dna`).
 - `validateUiDna`, `parseUiDna`, `isUiDna` helpers and a generated JSON Schema
   at `@uidna/schema/ui-dna.schema.json`.
 - Complete example document built from Fixture A (`fixtures/a-marketing`).

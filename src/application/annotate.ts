@@ -72,8 +72,9 @@ export function applyPatch(doc: UiDnaDocument, patch: AnnotationPatch, capturedA
     case 'authorize': {
       const asset = doc.assets.find((a) => a.id === patch.assetId);
       if (!asset) return err(uidnaError('not-found', `asset ${patch.assetId} not found`));
+      // The asset's provenance describes how its url, bytes and usage were measured; the agent's
+      // authorization decision lives in the annotation log and is never written over it.
       asset.authorization = patch.authorization;
-      asset.provenance = provenance;
       return ok({ op: patch.op, path: `asset:${patch.assetId}/authorization` });
     }
     case 'limitation': {

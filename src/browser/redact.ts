@@ -8,7 +8,7 @@
  */
 
 /** Parameter names that are treated as secrets (matched case-insensitively). */
-export const SENSITIVE_PARAM_PATTERN = /token|key|secret|auth|session|password|signature|sig|code/i;
+export const SENSITIVE_PARAM_PATTERN = /token|key|secret|auth|session|sess|sid\b|password|passwd|pwd|pass\b|signature|sig\b|code|jwt|bearer|credential|otp|csrf|xsrf|nonce|ticket|hash\b/i;
 
 /** The replacement value. */
 export const REDACTED = '[redacted]';

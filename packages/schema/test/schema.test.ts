@@ -204,10 +204,8 @@ describe('reference example', () => {
     } catch {
       text = null;
     }
-    if (text === null) {
-      console.warn('docs/examples/fixture-a.dna.json not present; run the e2e loop and scripts/refresh-example.ts');
-      return;
-    }
+    expect(text, 'docs/examples/fixture-a.dna.json must exist; produce it with scripts/refresh-example.ts').not.toBeNull();
+    if (text === null) return;
     const result = validateUiDna(JSON.parse(text));
     expect(formatIssues(result)).toEqual([]);
     if (!result.success) return;

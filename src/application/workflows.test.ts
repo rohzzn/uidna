@@ -128,14 +128,14 @@ describe('workflows over the sample scan', () => {
       scanId: SAMPLE_SCAN_ID,
       patches: [
         { op: 'name', target: 'component', id: 'cmp_01', value: 'FeatureCard', rationale: 'three feature cards', confidence: 0.9 },
-        { op: 'name', target: 'token', id: 'tok_color_01', value: 'ink' },
-        { op: 'annotate', path: 'visual.tokens.colors.0.value', value: '#1b1f2b', rationale: 'brand palette says 2b' },
-        { op: 'authorize', assetId: 'as_01', authorization: 'authorized', rationale: 'own fixture' },
-        { op: 'limitation', limitation: { kind: 'not-reconstructable', subject: 'parallax', reason: 'not observed' } },
-        { op: 'behavior', event: { type: 'key', nodeId: 'n2', stateId: 'st_03', key: 'Escape' }, effects: [{ kind: 'hide', targetNodeId: 'n3' }], transitionId: 'tr_01' },
-        { op: 'name', target: 'token', id: 'tok_missing', value: 'x' },
-        { op: 'annotate', path: 'visual.tokens.colors.0.value', value: 42 },
-        { op: 'annotate', path: 'states.items.0.nodes.0', value: 'nope' },
+        { op: 'name', target: 'token', id: 'tok_color_01', value: 'ink', confidence: 0.8 },
+        { op: 'annotate', path: 'visual.tokens.colors.0.value', value: '#1b1f2b', rationale: 'brand palette says 2b', confidence: 0.6 },
+        { op: 'authorize', assetId: 'as_01', authorization: 'authorized', rationale: 'own fixture', confidence: 1 },
+        { op: 'limitation', limitation: { kind: 'not-reconstructable', subject: 'parallax', reason: 'not observed' }, confidence: 1 },
+        { op: 'behavior', event: { type: 'key', nodeId: 'n2', stateId: 'st_03', key: 'Escape' }, effects: [{ kind: 'hide', targetNodeId: 'n3' }], transitionId: 'tr_01', confidence: 0.7 },
+        { op: 'name', target: 'token', id: 'tok_missing', value: 'x', confidence: 0.5 },
+        { op: 'annotate', path: 'visual.tokens.colors.0.value', value: 42, confidence: 0.5 },
+        { op: 'annotate', path: 'states.items.0.nodes.0', value: 'nope', confidence: 0.5 },
       ],
     });
     expect(result.ok).toBe(true);
@@ -156,6 +156,7 @@ describe('workflows over the sample scan', () => {
     expect(color?.value.annotation?.value).toBe('#1b1f2b');
     expect(color?.name?.value).toBe('ink');
     expect(dna.value.assets[0]?.authorization).toBe('authorized');
+    expect(dna.value.assets[0]?.provenance.kind).toBe('measured');
     expect(dna.value.behavior.at(-1)?.provenance.source).toBe('agent');
     expect(dna.value.behavior.at(-1)?.event.target.nodeId).toBe('n2');
     expect(dna.value.annotations.length).toBe(6);

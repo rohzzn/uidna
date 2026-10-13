@@ -215,8 +215,8 @@ const BLEND_MODES = new Set([
   'plus-lighter',
 ]);
 
-/** Characters that cannot appear inside a Tailwind arbitrary value. */
-const UNSAFE_ARBITRARY = /[\s"'`;{}[\]\\<>]/;
+/** Characters and functions that cannot appear inside a Tailwind arbitrary value (page content never reaches CSS as code or a fetch). */
+const UNSAFE_ARBITRARY = /[\s"'`;{}[\]\\<>]|url\(|expression\(|@import/i;
 
 /**
  * Normalize a CSS color to lowercase hex (`#rrggbb` or `#rrggbbaa`),

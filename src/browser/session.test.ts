@@ -208,14 +208,20 @@ describe('session on generated sites', () => {
     expect(unwrap(await session.snapshot()).nodeCount).toBeGreaterThan(5);
   });
 
-  it('follows a same-origin link, scopes the capture network to the new document, and refuses stale node ids', async () => {
+  it('blocks a same-origin link click, scopes the capture network to a navigated document, and refuses stale node ids', async () => {
     unwrap(await session.navigate(siteA.url));
     const before = unwrap(await session.capture());
     const link = findNode(before, (node) => node.attrs.id === 'tob');
     expect(before.network.map((entry) => entry.url)).toContain(siteA.url);
 
+    // Phase 1 never leaves the document through an action: same-origin navigations are blocked too.
     const outcome = unwrap(await session.act({ kind: 'click', target: { nodeId: link.id } }));
-    expect(outcome).toMatchObject({ performed: true, navigated: true, url: `${siteA.url}b.html` });
+    expect(outcome.performed).toBe(false);
+    expect(outcome.navigated).toBe(false);
+    expect(outcome.blockedNavigation).toBe(`${siteA.url}b.html`);
+    expect(session.currentUrl()).toBe(siteA.url);
+
+    unwrap(await session.navigate(`${siteA.url}b.html`));
     const stale = unwrap(await session.act({ kind: 'click', target: { nodeId: link.id } }));
     expect(stale.performed).toBe(false);
     expect(stale.reason).toContain('previous document');

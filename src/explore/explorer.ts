@@ -47,6 +47,10 @@ export interface ExploreInput {
   readonly denyNames?: readonly string[];
   /** Explore only the base states at these viewport widths. Default: all base states. */
   readonly viewportWidths?: readonly number[];
+  /** Transitions recorded by an earlier run of this scan; ids continue after them and they are returned together with the new ones. */
+  readonly previousTransitions?: readonly Transition[];
+  /** Node paths whose actions caused a side effect or a navigation in an earlier run; they are never acted on again. */
+  readonly knownSideEffectPaths?: ReadonlySet<string>;
 }
 
 /** What a run produced. The caller re-assembles `dna.json` with `transitions`. */
@@ -623,7 +627,14 @@ async function performAction(run: Run, ref: Reference, planned: Planned): Promis
     run.limitations.push(`${planned.describe}: ${outcome.dialogs.length} dialog(s) opened and were dismissed (${outcome.dialogs.map(clip).join('; ')})`);
   }
   if (!outcome.performed) {
-    attempt('failed', null, outcome.reason ?? 'action not performed', started);
+    if (outcome.blockedNavigation !== undefined) {
+      // The action tried to leave the document: a side effect that is recorded once and never repeated.
+      if (planned.node !== null) run.sideEffectPaths.add(planned.node.path);
+      attempt('navigated', null, `navigation to ${outcome.blockedNavigation} was blocked`, started);
+      run.unknowns.push(`${planned.describe} skipped: it navigates to ${outcome.blockedNavigation} (blocked; navigation is not explored in Phase 1)`);
+    } else {
+      attempt('failed', null, outcome.reason ?? 'action not performed', started);
+    }
     await revertUnchanged(run, planned);
     await ensureBase(run, ref, planned, null);
     return;
@@ -764,13 +775,13 @@ export async function exploreInteractions(input: ExploreInput): Promise<Result<E
     tmpDir: paths.value.tmpDir,
     assetDir: paths.value.assetDir,
     captures: new Map(input.captures),
-    transitions: [],
+    transitions: [...(input.previousTransitions ?? [])],
     attempted: [],
     skipped: [],
     limitations: [],
     unknowns: [],
     newStateIds: [],
-    sideEffectPaths: new Set(),
+    sideEffectPaths: new Set(input.knownSideEffectPaths ?? []),
     derivedByDigests: new Map(),
     progress: { current: 0, total },
     discovered: 0,

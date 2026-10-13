@@ -106,7 +106,21 @@ export function coerce(field: FieldInfo, raw: string | boolean | undefined): unk
     }
     case 'array': {
       const text = String(raw);
-      const parts = text.startsWith('[') ? (JSON.parse(text) as unknown[]) : text.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+      let parts: unknown[];
+      if (text.startsWith('[')) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          throw new Error(`--${kebab(field.name)} expects a JSON array or a comma-separated list`);
+        }
+        if (!Array.isArray(parsed)) throw new Error(`--${kebab(field.name)} expects a JSON array`);
+        parts = parsed;
+        // Arrays of objects (e.g. annotation patches) are passed through untouched.
+        if (field.itemKind === 'unknown') return parts;
+      } else {
+        parts = text.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+      }
       if (field.itemKind === 'number') {
         return parts.map((p) => {
           const n = Number(p);

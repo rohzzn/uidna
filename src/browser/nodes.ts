@@ -224,15 +224,18 @@ export function dropDefaults(style: Readonly<Record<string, string>>): Record<st
  * inputs and of inputs whose `name` looks like a credential is dropped, and
  * URL attributes have secret-looking query parameters redacted.
  */
+/** Field names and autocomplete tokens whose values are personal or financial and never stored. */
+const SENSITIVE_FIELD_PATTERN = /^cc-|card|cvv|cvc|ccv|expir|iban|bic|swift|routing|account|ssn|social|passport|license|licence|one-time|new-password|current-password|birth|dob|phone|tel\b|email/i;
+
 export function filterAttributes(element: Pick<RawElement, 'tag' | 'attrs'>, truncated?: TruncationCounts): Record<string, string> {
   const allowed = new Set<string>(CAPTURED_ATTRIBUTES);
   const attrs: Record<string, string> = {};
   let dropValue = false;
-  if (element.tag === 'input') {
+  if (element.tag === 'input' || element.tag === 'textarea') {
     for (const [name, value] of element.attrs) {
       const lower = value.toLowerCase();
       if (name === 'type' && (lower === 'password' || lower === 'hidden')) dropValue = true;
-      if (name === 'name' && SENSITIVE_PARAM_PATTERN.test(value)) dropValue = true;
+      if ((name === 'name' || name === 'id' || name === 'autocomplete') && (SENSITIVE_PARAM_PATTERN.test(value) || SENSITIVE_FIELD_PATTERN.test(value))) dropValue = true;
     }
   }
   for (const [name, rawValue] of element.attrs) {

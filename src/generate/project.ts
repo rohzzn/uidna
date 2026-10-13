@@ -218,8 +218,9 @@ export interface ReadmeInput {
   readonly skipped: readonly SkippedProperty[];
 }
 
+/** Page-derived text for the README: one line, no table breaks, no code spans, no raw HTML. */
 function md(text: string): string {
-  return text.replace(/[\r\n]+/g, ' ').replace(/\|/g, '\\|').replace(/`/g, "'");
+  return text.replace(/[\r\n]+/g, ' ').replace(/\|/g, '\\|').replace(/`/g, "'").replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** README.md content. */

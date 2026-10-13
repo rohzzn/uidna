@@ -50,7 +50,12 @@ export const BudgetInputSchema = z
 export const ScanIdSchema = z.string().regex(/^scan_\d{8}_[0-9a-f]{6}$/).describe('Scan id returned by scan_interface, e.g. scan_20261013_3f9a1c.');
 
 const TargetFields = {
-  url: z.string().url().optional().describe('Public page to scan with Playwright-launched Chromium.'),
+  url: z
+    .string()
+    .url()
+    .refine((value) => /^https?:/i.test(value), 'only http(s) URLs can be scanned')
+    .optional()
+    .describe('Public http(s) page to scan with Playwright-launched Chromium. robots.txt is always honored.'),
   cdpEndpoint: z
     .string()
     .optional()
@@ -124,7 +129,6 @@ export const scanInterface = defineTool({
     viewports: ViewportWidthsSchema.optional(),
     budget: BudgetInputSchema.optional(),
     headless: z.boolean().optional().describe('Launch mode only. Default true.'),
-    honorRobots: z.boolean().optional().describe('Launch mode only. Default true.'),
     outRoot: z.string().optional().describe('Directory that holds scans. Default ./.uidna'),
   }),
   output: z.strictObject({
@@ -149,7 +153,7 @@ export const exploreInteractions = defineTool({
   name: 'explore_interactions',
   title: 'Explore interactions',
   description:
-    'Try safe interactions on the captured base states (hover, focus, Escape, Tab, clicks on non-submitting buttons, summaries, tabs, disclosure and menu triggers). Records a new state and a transition for every action that changed the page, reverts after each one, and lists every skipped interaction with its reason. Never submits forms, follows links or repeats an action that caused a non-GET request.',
+    'Try safe interactions on the captured base states (hover, focus, Escape, Tab, clicks on non-submitting buttons, summaries, tabs, disclosure and menu triggers). Records a new state and a transition for every action that changed the page, reverts after each one, and lists every skipped interaction with its reason. Never submits forms, never follows links (every document navigation an action requests is blocked), and never repeats an action that caused a non-GET request or a navigation, in this run or a later run of the same scan. Coverage counts: discovered = visible interactive elements, explored = interactions attempted (including ones the browser refused, listed in explore.json), changed = new states.',
   shape: 'capture',
   input: z.object({
     scanId: ScanIdSchema,
@@ -260,7 +264,7 @@ export const searchComponents = defineTool({
   name: 'search_components',
   title: 'Search components',
   description:
-    'List component candidates found by fingerprinting (normalized structure + style + role) across all captured states, in stable order: match count descending, then fingerprint. Each candidate carries instances, varying props, variants and a confidence derived from structural and style agreement. Naming is left to you.',
+    'List component candidates found by fingerprinting (normalized structure + style + role) across the base states, in stable order: match count descending, then fingerprint. Each candidate carries instances, varying props, variants and a confidence derived from structural and style agreement. Naming is left to you.',
   shape: 'search',
   input: z.object({
     scanId: ScanIdSchema,
@@ -319,7 +323,7 @@ export const extractTokens = defineTool({
 
 const PatchBase = {
   rationale: z.string().optional().describe('Why you believe this.'),
-  confidence: z.number().min(0).max(1).optional().describe('Default 0.7.'),
+  confidence: z.number().min(0).max(1).describe('Your confidence in this reading; it is stored as given, never defaulted.'),
   basedOn: z.array(z.string()).optional().describe('Evidence ids the patch rests on.'),
 };
 
@@ -399,7 +403,7 @@ export const generateProject = defineTool({
   name: 'generate_project',
   title: 'Generate project',
   description:
-    'Generate a deterministic React + TypeScript + Tailwind + Vite project from the UI DNA document: semantic HTML, components extracted from fingerprint matches (with generated names for you to rename), tokens as CSS variables and a Tailwind theme, observed transitions as React state with the same ARIA attributes. Assets that are not authorized become labeled placeholders. Installs and builds the project unless told otherwise and returns the build log.',
+    'Generate a deterministic React + TypeScript + Tailwind + Vite project from the UI DNA document: semantic HTML, components extracted from fingerprint matches (with generated names for you to rename), tokens as CSS variables and a Tailwind theme, observed transitions as React state with the same ARIA attributes. Assets that are not authorized become labeled placeholders. Installs (from the npm registry) and builds the project unless told otherwise and returns the paths of the install and build logs. Generated files in outDir are overwritten; other files are kept.',
   shape: 'workflow',
   input: z.object({
     scanId: ScanIdSchema,
@@ -418,7 +422,7 @@ export const generateProject = defineTool({
     install: z.strictObject({ attempted: z.boolean(), ok: z.boolean().nullable(), logPath: z.string().nullable(), durationMs: z.number().int().min(0) }),
     build: z.strictObject({ attempted: z.boolean(), ok: z.boolean().nullable(), logPath: z.string().nullable(), durationMs: z.number().int().min(0), distDir: z.string().nullable() }),
   }),
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
   cli: { command: 'generate', summary: 'Generate a React project from a scan', positionals: ['scanId', 'outDir'] },
   longRunning: true,
 });
@@ -427,7 +431,7 @@ export const verifyReconstruction = defineTool({
   name: 'verify_reconstruction',
   title: 'Verify reconstruction',
   description:
-    'Build and serve the generated project, render every captured state at its viewport, and compare it with the original: pixel diff, SSIM, bounding-box geometry, computed styles, missing or extra elements, then replay every recorded transition with role and name locators and compare the resulting role tree and screenshot. Returns a DiffReport with one finding per concrete difference, plus regressions and resolved findings relative to the previous attempt.',
+    'Build and serve the generated project, render every base state at its viewport, and compare it with the original: pixel diff, SSIM, bounding-box geometry, computed styles, missing or extra elements, then replay every recorded transition that starts from a base state or one step away from it (locating targets by data-uidna-path, then role and name) and compare the resulting role-tree change and screenshot. Returns a DiffReport with one finding per concrete difference, plus regressions and resolved findings relative to the previous attempt.',
   shape: 'compare',
   input: z.object({
     scanId: ScanIdSchema,
@@ -455,7 +459,7 @@ export const reportReconstruction = defineTool({
   name: 'report_reconstruction',
   title: 'Report reconstruction',
   description:
-    'Render a static HTML report for a scan: side-by-side screenshots with overlays per state and viewport, token tables, component candidates, behavior replay results, the findings of every verification attempt and the limitations. No server needed.',
+    'Render a static HTML report for a scan: side-by-side screenshots with overlays per state and viewport, token tables, component candidates, behavior replay results, the history of every verification attempt (counts, regressions, resolved) with the findings of the latest attempt, and the limitations. No server needed.',
   shape: 'workflow',
   input: z.object({
     scanId: ScanIdSchema,
@@ -511,7 +515,6 @@ export const reconstructInterface = defineTool({
     explore: z.boolean().optional().describe('Run safe exploration. Default true.'),
     install: z.boolean().optional().describe('Run npm install in the generated project. Default true.'),
     headless: z.boolean().optional(),
-    honorRobots: z.boolean().optional(),
     outRoot: z.string().optional(),
   }),
   output: z.strictObject({

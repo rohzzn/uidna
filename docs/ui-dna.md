@@ -10,9 +10,11 @@ The schema is published as [`@uidna/schema`](../packages/schema) (Zod, JSON Sche
 TypeScript types) and versioned with `dnaVersion`. It is framework neutral: nothing in
 it mentions React, Tailwind or any other output framework.
 
-A complete example produced from Fixture A lives in
-[`docs/examples/fixture-a.dna.json`](examples/fixture-a.dna.json). Excerpts below come
-from it.
+A complete, validated example produced from Fixture A lives in
+[`docs/examples/fixture-a.dna.json`](examples/fixture-a.dna.json): one viewport
+(390 px) and four safe clicks (the hamburger and the three accordion items), five states
+and five transitions. The snippets below are abbreviated illustrations of the same
+shapes, not verbatim copies.
 
 ## Provenance
 

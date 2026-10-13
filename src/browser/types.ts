@@ -141,6 +141,8 @@ export interface ActionOutcome {
   readonly url: string;
   /** Dialog messages (alert/confirm/prompt) that were auto-dismissed. */
   readonly dialogs: readonly string[];
+  /** Redacted URL of a document navigation the action requested and UI DNA blocked (same- or cross-origin). */
+  readonly blockedNavigation?: string;
   readonly durationMs: number;
 }
 
@@ -176,6 +178,8 @@ export interface NavigationOutcome {
 export interface BrowserSession {
   readonly id: string;
   readonly mode: BrowserMode;
+  /** False when Chromium had to be launched without its sandbox (reported as a limitation). Undefined in attach mode. */
+  readonly sandboxed?: boolean;
   /** Load a URL in the page. Honors robots.txt in launch mode. */
   navigate(url: string, options?: NavigateOptions): Promise<Result<NavigationOutcome>>;
   /** Reload the current page (used to revert to a base state). */

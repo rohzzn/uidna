@@ -135,7 +135,12 @@ export function clickExclusion(node: UiNode, denyNames: readonly string[] = DEFA
   if (tag === 'button' && (type === 'submit' || type === 'reset')) return 'submits';
   if (tag === 'input' && (type === 'submit' || type === 'image' || type === 'reset')) return 'submits';
   if (node.attrs.form !== undefined || node.attrs.formaction !== undefined) return 'submits';
-  const denied = matchDenyName(node.name, denyNames) ?? matchDenyName(node.text, denyNames) ?? matchDenyName(subtreeText, denyNames);
+  const denied =
+    matchDenyName(node.name, denyNames) ??
+    matchDenyName(node.text, denyNames) ??
+    matchDenyName(node.attrs['aria-label'], denyNames) ??
+    matchDenyName(node.attrs.title, denyNames) ??
+    matchDenyName(subtreeText, denyNames);
   if (denied !== null) return `denied name: ${denied}`;
   const allowed =
     isPlainButton(node) ||

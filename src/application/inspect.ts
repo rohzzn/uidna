@@ -354,5 +354,7 @@ export async function extractTokens(
   const record = await ctx.ledger.record({ kind: 'tokens', inputs: { scanId: input.scanId, kinds: input.kinds }, artifacts: ['dna.json'], scanId: input.scanId });
   const limitations: string[] = [];
   if (kinds !== null) limitations.push('typography styles are composite and are only returned when no kinds filter is given');
+  const unproduced = [...(kinds ?? [])].filter((kind) => ['font-weight', 'line-height', 'letter-spacing'].includes(kind));
+  if (unproduced.length > 0) limitations.push(`${unproduced.join(', ')}: no standalone tokens are produced for these kinds; they appear inside typography styles`);
   return ok(envelope(record, { scanId: input.scanId, tokens, counts }, { limitations }));
 }

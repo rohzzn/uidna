@@ -20,7 +20,7 @@ import { z } from 'zod';
 import type { Viewport } from '@uidna/schema';
 import type { Clock } from '../domain/clock.js';
 import { systemClock } from '../domain/clock.js';
-import { toError, uidnaError } from '../domain/errors.js';
+import { describeError, toError, uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { BrowserVersionResultSchema, CdpVersionJsonSchema, TargetInfoResultSchema } from './cdp-schemas.js';
 import { evaluateInPage } from './in-page.js';
@@ -55,13 +55,22 @@ export function createPlaywrightProvider(deps: ProviderDeps = {}): BrowserProvid
 export async function launchSession(options: LaunchOptions, clock: Clock = systemClock): Promise<Result<BrowserSession>> {
   const viewport = options.viewport ?? DEFAULT_VIEWPORT;
   let browser: Browser;
+  let sandboxed = true;
+  const launchOptions = {
+    headless: options.headless ?? true,
+    ...(options.executablePath !== undefined ? { executablePath: options.executablePath } : {}),
+  };
   try {
-    browser = await chromium.launch({
-      headless: options.headless ?? true,
-      ...(options.executablePath !== undefined ? { executablePath: options.executablePath } : {}),
-    });
-  } catch (cause) {
-    return err(toError(cause, 'browser', 'Chromium could not be launched'));
+    // Playwright disables Chromium's sandbox by default; UI DNA turns it on and only falls back
+    // (reported through `session.sandboxed`) when the host cannot run a sandboxed Chromium.
+    browser = await chromium.launch({ ...launchOptions, chromiumSandbox: true });
+  } catch (sandboxCause) {
+    try {
+      browser = await chromium.launch({ ...launchOptions, chromiumSandbox: false });
+      sandboxed = false;
+    } catch (cause) {
+      return err(toError(cause, 'browser', `Chromium could not be launched (sandboxed attempt: ${describeError(sandboxCause)})`));
+    }
   }
   try {
     const userAgent = await readUserAgent(browser);
@@ -77,6 +86,7 @@ export async function launchSession(options: LaunchOptions, clock: Clock = syste
     });
     const page = await context.newPage();
     const session = new PlaywrightSession({
+      sandboxed,
       browser,
       page,
       mode: 'launch',
@@ -149,7 +159,6 @@ export async function attachSession(options: AttachOptions, clock: Clock = syste
       clock,
       viewport,
       honorRobots: false,
-      rateLimitMs: 0,
       ownsBrowser: false,
     });
     return ok(session);

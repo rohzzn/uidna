@@ -73,6 +73,15 @@ describe('Phase 1 loop on Fixture A', () => {
     expect(reconstruct.diffReport).not.toBeNull();
     baseline = reconstruct.diffReport!;
     expect(baseline.visual.map((v) => v.viewport.width).sort((a, b) => b - a)).toEqual([1280, 768, 390]);
+    for (const visual of baseline.visual) {
+      expect(visual.pixels, `pixels at ${visual.viewport.width}`).not.toBeNull();
+      expect(visual.pixels?.diffRatio, `diff ratio at ${visual.viewport.width}`).not.toBeNull();
+      expect(visual.geometry.comparedNodes, `compared nodes at ${visual.viewport.width}`).toBeGreaterThan(0);
+      expect(visual.geometry.matchedNodes, `matched nodes at ${visual.viewport.width}`).toBe(visual.geometry.comparedNodes);
+      // The unauthorized illustration is a placeholder, so every viewport carries at least one concrete finding.
+      expect(visual.findings.length, `findings at ${visual.viewport.width}`).toBeGreaterThan(0);
+      expect(visual.findings.every((f) => f.original !== undefined && f.generated !== undefined && f.evidence.length > 0)).toBe(true);
+    }
     expect(baseline.behavioral.some(isHamburger)).toBe(true);
     expect(baseline.behavioral.some(isAccordion)).toBe(true);
 

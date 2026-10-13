@@ -6,6 +6,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Transition } from '@uidna/schema';
 import { assembleDna } from '../analysis/index.js';
+import { redactUrl } from '../browser/redact.js';
 import type { BrowserSession, CapturedState } from '../browser/types.js';
 import { DEFAULT_VIEWPORT_WIDTHS, validateTarget, viewportFromWidth, type scanInterface as scanInterfaceContract } from '../contracts/tools.js';
 import type { ToolInput, ToolOutput } from '../contracts/types.js';
@@ -19,6 +20,15 @@ import type { WorkflowContext } from './context.js';
 import { withOutRoot } from './context.js';
 import { stateSummaries } from './inspect.js';
 import type { ScanRecord, StateRecord } from './records.js';
+
+/** Origin (scheme, host, port) of a CDP endpoint; the path of a ws:// endpoint is a debugging token and is never stored. */
+export function endpointOrigin(endpoint: string): string {
+  try {
+    return new URL(endpoint).origin;
+  } catch {
+    return redactUrl(endpoint);
+  }
+}
 
 /** Resolve viewport widths from input, config and defaults; widest first, deduplicated. */
 export function resolveViewports(input: readonly number[] | undefined, config: readonly number[] | undefined): { width: number; height: number }[] {
@@ -88,7 +98,7 @@ export async function captureState(
 /** Open a session for a scan target: attach over CDP or launch Chromium. */
 export async function openSession(
   ctx: WorkflowContext,
-  target: { url?: string | undefined; cdpEndpoint?: string | undefined; targetId?: string | undefined; headless?: boolean | undefined; honorRobots?: boolean | undefined },
+  target: { url?: string | undefined; cdpEndpoint?: string | undefined; targetId?: string | undefined; headless?: boolean | undefined },
   viewport: { width: number; height: number },
 ): Promise<Result<BrowserSession>> {
   if (target.cdpEndpoint) {
@@ -96,7 +106,7 @@ export async function openSession(
   }
   return ctx.provider.launch({
     headless: target.headless ?? ctx.config.headless ?? true,
-    honorRobots: target.honorRobots ?? ctx.config.honorRobots ?? true,
+    honorRobots: true,
     viewport,
   });
 }
@@ -105,12 +115,14 @@ export async function openSession(
 export async function reassembleDna(ctx: WorkflowContext, scan: ScanRecord, transitions?: Transition[]): Promise<Result<string>> {
   const captures = await ctx.store.loadAllCaptures(scan.scanId, scan);
   if (!captures.ok) return captures;
+  // A previous document carries the agent's annotations: failing to read it must not silently drop them.
   const previous = (await ctx.store.hasDna(scan.scanId)) ? await ctx.store.loadDna(scan.scanId) : null;
+  if (previous !== null && !previous.ok) return previous;
   const assembled = assembleDna({
     scan,
     captures: captures.value,
     ...(transitions === undefined ? {} : { transitions }),
-    previous: previous?.ok ? previous.value : null,
+    previous: previous ? previous.value : null,
     toolVersion: ctx.toolVersion,
     clock: ctx.clock,
   });
@@ -148,8 +160,9 @@ export async function scanInterface(
     updatedAt: now,
     target: {
       kind: input.cdpEndpoint ? 'cdp' : 'url',
-      url: input.url ?? session.currentUrl(),
-      ...(input.cdpEndpoint ? { cdp: { endpoint: input.cdpEndpoint, ...(input.targetId === undefined ? {} : { targetId: input.targetId }) } } : {}),
+      url: redactUrl(input.url ?? session.currentUrl()),
+      // The CDP endpoint is stored without its path: a ws:// endpoint path is a per-browser debugging token.
+      ...(input.cdpEndpoint ? { cdp: { endpoint: endpointOrigin(input.cdpEndpoint), ...(input.targetId === undefined ? {} : { targetId: input.targetId }) } } : {}),
     },
     browser: { mode: session.mode, name: 'chromium', version: null },
     viewports,
@@ -183,13 +196,14 @@ export async function scanInterface(
         await ctx.store.saveScan(scan);
         return err(uidnaError(navigated.error._tag, `scan ${scanId}: ${navigated.error.message}`, { details: { scanId, scanDir: created.value }, cause: navigated.error }));
       }
-      scan.target.url = navigated.value.url;
+      scan.target.url = redactUrl(navigated.value.url);
       if (navigated.value.status !== null && navigated.value.status >= 400) {
         limitations.push(`page responded with HTTP ${navigated.value.status}`);
       }
     } else {
-      scan.target.url = session.currentUrl();
+      scan.target.url = redactUrl(session.currentUrl());
     }
+    if (session.sandboxed === false) limitations.push('Chromium ran without its sandbox: this host could not start a sandboxed Chromium');
 
     for (const [index, viewport] of viewports.entries()) {
       const stop = budget.check();

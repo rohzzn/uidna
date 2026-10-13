@@ -28,6 +28,20 @@ export async function exploreInteractions(
   if (scan.states.length === 0) return err(uidnaError('validation', `scan ${input.scanId} has no captured states to explore`));
   const captures = await ctx.store.loadAllCaptures(input.scanId, scan);
   if (!captures.ok) return captures;
+  // An earlier run of this scan is evidence too: its transitions are kept and the actions that
+  // caused side effects or navigations are never repeated.
+  const previousRecord = await ctx.store.loadExplore(input.scanId);
+  if (!previousRecord.ok) return previousRecord;
+  const previousDna = (await ctx.store.hasDna(input.scanId)) ? await ctx.store.loadDna(input.scanId) : null;
+  if (previousDna !== null && !previousDna.ok) return previousDna;
+  const previousTransitions = previousDna ? previousDna.value.states.transitions : [];
+  const knownSideEffectPaths = new Set<string>();
+  for (const attempt of previousRecord.value?.attempted ?? []) {
+    if ((attempt.outcome === 'side-effect' || attempt.outcome === 'navigated') && attempt.action.target) knownSideEffectPaths.add(attempt.action.target.nodePath);
+  }
+  for (const transition of previousTransitions) {
+    if (transition.sideEffects && transition.action.target) knownSideEffectPaths.add(transition.action.target.nodePath);
+  }
 
   const limits = resolveLimits(ctx, { ...scan.budget.limits, ...(input.budget ?? {}) });
   const budget = new BudgetTracker(limits, ctx.clock, ctx.signal);
@@ -46,6 +60,8 @@ export async function exploreInteractions(
     evidenceId: evidence.id,
     ...(denyNames.length > 0 ? { denyNames } : {}),
     ...(input.viewports === undefined ? {} : { viewportWidths: input.viewports }),
+    previousTransitions,
+    knownSideEffectPaths,
   });
   if (!explored.ok) return explored;
   const outcome = explored.value;

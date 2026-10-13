@@ -25,7 +25,6 @@ export const ConfigSchema = z
     /** Additional accessible-name words the explorer must never click. */
     denyNames: z.array(z.string().min(1)).optional(),
     headless: z.boolean().optional(),
-    honorRobots: z.boolean().optional(),
     /** Default CDP endpoint for `doctor` and attach mode. */
     cdpEndpoint: z.string().optional(),
     debug: z.boolean().optional(),

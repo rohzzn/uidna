@@ -62,6 +62,8 @@ export interface SessionDeps {
   readonly honorRobots: boolean;
   /** Minimum delay between navigations to the same origin; undefined picks 0 for local hosts and 1000 otherwise. */
   readonly rateLimitMs?: number;
+  /** False when the browser runs without its sandbox. */
+  readonly sandboxed?: boolean;
   /** True when `close()` should close the browser (launch mode). */
   readonly ownsBrowser: boolean;
   readonly robots?: RobotsCache;
@@ -96,6 +98,7 @@ export class PlaywrightSession implements BrowserSession {
   private readonly robots: RobotsCache;
   private readonly honorRobots: boolean;
   private readonly rateLimitMs: number | undefined;
+  readonly sandboxed: boolean | undefined;
   /** True when `close()` closes the browser (launch mode); false when it only disconnects (cdp mode). */
   readonly ownsBrowser: boolean;
   private currentViewport: Viewport;
@@ -115,6 +118,7 @@ export class PlaywrightSession implements BrowserSession {
     this.currentViewport = deps.viewport;
     this.honorRobots = deps.honorRobots;
     this.rateLimitMs = deps.rateLimitMs;
+    this.sandboxed = deps.sandboxed;
     this.ownsBrowser = deps.ownsBrowser;
     this.robots = deps.robots ?? new RobotsCache();
     this.ledger = new NetworkLedger(deps.clock);
@@ -213,7 +217,6 @@ export class PlaywrightSession implements BrowserSession {
     const before = this.page.url();
     const originBefore = originOf(before);
     let navigated = false;
-    let navigationRequested = false;
     const blocked: string[] = [];
     let popups = 0;
     const onNavigated = (frame: Frame): void => {
@@ -226,7 +229,10 @@ export class PlaywrightSession implements BrowserSession {
     const guard = async (route: Route): Promise<void> => {
       const request = route.request();
       const target = classifyNavigation(request, this.page);
-      if (target !== 'none' && target !== 'subframe' && originOf(request.url()) !== originBefore) {
+      // Phase 1 explores one document: every document navigation of this page that an action requests
+      // is blocked, same-origin or not (hash changes never issue a request and are reported as navigated);
+      // other pages (popups) are blocked only cross-origin and closed either way.
+      if (target === 'session' || (target === 'other-page' && originOf(request.url()) !== originBefore)) {
         blocked.push(redactUrl(request.url()));
         this.ledger.block(request, BLOCKED_NAVIGATION_FAILURE);
         // `aborted` (net::ERR_ABORTED) cancels the navigation like `window.stop()`: no error page, and Playwright
@@ -234,7 +240,6 @@ export class PlaywrightSession implements BrowserSession {
         await route.abort('aborted').catch(() => undefined);
         return;
       }
-      if (target === 'session') navigationRequested = true;
       await route.continue().catch(() => undefined);
     };
     // In launch mode the context is ours, so popups are guarded too; in cdp mode only this page is touched.
@@ -247,11 +252,6 @@ export class PlaywrightSession implements BrowserSession {
       routed = true;
       const performed = await this.perform(action);
       await this.page.waitForTimeout(100);
-      if (navigationRequested && !navigated) {
-        await this.page
-          .waitForEvent('framenavigated', { predicate: (frame) => frame === this.page.mainFrame(), timeout: DEFAULT_ACTION_TIMEOUT_MS })
-          .catch(() => undefined);
-      }
       if (navigated || this.page.url() !== before) {
         navigated = true;
         await this.page.waitForLoadState('load', { timeout: 5000 }).catch(() => undefined);
@@ -278,7 +278,7 @@ export class PlaywrightSession implements BrowserSession {
       } else if (blocked.length > 0) {
         outcome = {
           performed: false,
-          reason: `The action would have navigated cross-origin to ${blocked[0] ?? ''}; the navigation was blocked and the page stayed at ${url}.`,
+          reason: `The action would have navigated to ${blocked[0] ?? ''}; the navigation was blocked and the page stayed at ${url}.`,
         };
       } else if (popups > 0) {
         outcome = { performed: false, reason: `The action opened ${popups} new page(s); they were closed because UI DNA explores one page at a time.` };
@@ -291,6 +291,7 @@ export class PlaywrightSession implements BrowserSession {
         durationMs: Date.now() - started,
       };
       if (outcome.reason !== undefined) result.reason = outcome.reason;
+      if (blocked.length > 0) result.blockedNavigation = blocked[0] ?? '';
       return ok(result);
     } catch (cause) {
       return err(toError(cause, 'browser', 'Action failed'));
@@ -365,6 +366,14 @@ export class PlaywrightSession implements BrowserSession {
         // already gone
       }
       this.cdpSession = null;
+    }
+    if (!this.ownsBrowser) {
+      // Leave the user's tab as we found it: drop the stabilization style we injected.
+      try {
+        await evaluateInPage(this.page, removeStabilizeStyle);
+      } catch {
+        // the page may be gone
+      }
     }
     try {
       // In cdp mode this only disconnects from the user's browser (verified in provider.test.ts); in launch mode it closes it.
@@ -621,6 +630,10 @@ function setCaptureMarker(): void {
 
 function readCaptureMarker(): boolean {
   return (window as unknown as UidnaWindow).__uidnaCaptured === true;
+}
+
+function removeStabilizeStyle(): void {
+  document.getElementById('uidna-stabilize')?.remove();
 }
 
 function injectStabilizeStyle(): void {

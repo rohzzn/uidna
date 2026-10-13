@@ -19,10 +19,13 @@ agent reconstructs, verifies, repairs, reports
 
 ## What it does today (Phase 1)
 
-Everything below is exercised in CI with a real Chromium against
-[Fixture A](fixtures/a-marketing), a marketing page with a responsive navbar and
-hamburger menu, a hero, two call-to-action buttons, a three-card grid, an image, an FAQ
-accordion and a footer, at 1280, 768 and 390 pixels wide.
+Everything below is implemented and tested. The loop itself runs in CI with a real
+Chromium against [Fixture A](fixtures/a-marketing), a marketing page with a responsive
+navbar and hamburger menu, a hero, two call-to-action buttons, a three-card grid, an
+image, an FAQ accordion and a footer, at 1280, 768 and 390 pixels wide. Fixture A has
+no forms, no cross-origin links and no network side effects, so the side-effect marking,
+navigation blocking, robots.txt and rate-limit paths are proven by unit tests on real
+browser sessions and synthetic pages rather than by the fixture loop.
 
 - **Capture.** Playwright-launched Chromium for public URLs, or attach to your own Chrome
   over the DevTools Protocol for sessions you are authorized to analyze. Collects the DOM,
@@ -46,7 +49,9 @@ accordion and a footer, at 1280, 768 and 390 pixels wide.
   HTML, components extracted from fingerprint matches with generated names for the agent
   to rename, tokens as CSS variables and a Tailwind theme, observed transitions as React
   state with the original ARIA attributes, labeled placeholders for unauthorized assets.
-  The project builds; its build is a CI test.
+  The project builds; its build is a CI test. Backend-dependent data is not modelled in
+  Phase 1: captures record network metadata, not response bodies, so no mocks are
+  generated yet and the limitation is stated in the generated README.
 - **Verification.** Pixel diff, SSIM, bounding-box geometry, computed-style and
   missing-or-extra element checks per state and viewport; every recorded transition
   replayed against the generated app with role and name locators. The output is a

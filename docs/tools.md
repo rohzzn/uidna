@@ -39,13 +39,12 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `url` | string | no | Public page to scan with Playwright-launched Chromium. |
+| `url` | string | no | Public http(s) page to scan with Playwright-launched Chromium. robots.txt is always honored. |
 | `cdpEndpoint` | string | no | Attach to your own Chrome started with --remote-debugging-port, e.g. http://localhost:9222. Requires your authorization. |
 | `targetId` | string | no | CDP target (tab) id; defaults to the active page. |
 | `viewports` | array of integer | no | Viewport widths in CSS pixels. Heights are derived: ≥1200 → 800, ≥700 → 1024, otherwise 844. |
 | `budget` | object | no | Per-scan budget. Exhaustion ends the step with partial artifacts and a diagnostic. |
 | `headless` | boolean | no | Launch mode only. Default true. |
-| `honorRobots` | boolean | no | Launch mode only. Default true. |
 | `outRoot` | string | no | Directory that holds scans. Default ./.uidna |
 
 **Result fields**
@@ -56,7 +55,7 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 
 **Explore interactions** — shape: `capture` — CLI: `uidna explore <scanId>`
 
-Try safe interactions on the captured base states (hover, focus, Escape, Tab, clicks on non-submitting buttons, summaries, tabs, disclosure and menu triggers). Records a new state and a transition for every action that changed the page, reverts after each one, and lists every skipped interaction with its reason. Never submits forms, follows links or repeats an action that caused a non-GET request.
+Try safe interactions on the captured base states (hover, focus, Escape, Tab, clicks on non-submitting buttons, summaries, tabs, disclosure and menu triggers). Records a new state and a transition for every action that changed the page, reverts after each one, and lists every skipped interaction with its reason. Never submits forms, never follows links (every document navigation an action requests is blocked), and never repeats an action that caused a non-GET request or a navigation, in this run or a later run of the same scan. Coverage counts: discovered = visible interactive elements, explored = interactions attempted (including ones the browser refused, listed in explore.json), changed = new states.
 
 Effects: writes artifacts, non-destructive, not idempotent, reaches the network. Long-running: accepts progress tokens and cancellation.
 
@@ -126,7 +125,7 @@ Effects: read-only, non-destructive, idempotent, local only. Returns immediately
 
 **Search components** — shape: `search` — CLI: `uidna components <scanId>`
 
-List component candidates found by fingerprinting (normalized structure + style + role) across all captured states, in stable order: match count descending, then fingerprint. Each candidate carries instances, varying props, variants and a confidence derived from structural and style agreement. Naming is left to you.
+List component candidates found by fingerprinting (normalized structure + style + role) across the base states, in stable order: match count descending, then fingerprint. Each candidate carries instances, varying props, variants and a confidence derived from structural and style agreement. Naming is left to you.
 
 Effects: read-only, non-destructive, idempotent, local only. Returns immediately.
 
@@ -187,9 +186,9 @@ Effects: writes artifacts, non-destructive, not idempotent, local only. Returns 
 
 **Generate project** — shape: `workflow` — CLI: `uidna generate <scanId> <outDir>`
 
-Generate a deterministic React + TypeScript + Tailwind + Vite project from the UI DNA document: semantic HTML, components extracted from fingerprint matches (with generated names for you to rename), tokens as CSS variables and a Tailwind theme, observed transitions as React state with the same ARIA attributes. Assets that are not authorized become labeled placeholders. Installs and builds the project unless told otherwise and returns the build log.
+Generate a deterministic React + TypeScript + Tailwind + Vite project from the UI DNA document: semantic HTML, components extracted from fingerprint matches (with generated names for you to rename), tokens as CSS variables and a Tailwind theme, observed transitions as React state with the same ARIA attributes. Assets that are not authorized become labeled placeholders. Installs (from the npm registry) and builds the project unless told otherwise and returns the paths of the install and build logs. Generated files in outDir are overwritten; other files are kept.
 
-Effects: writes artifacts, non-destructive, idempotent, local only. Long-running: accepts progress tokens and cancellation.
+Effects: writes artifacts, destructive, idempotent, reaches the network. Long-running: accepts progress tokens and cancellation.
 
 **Input**
 
@@ -209,7 +208,7 @@ Effects: writes artifacts, non-destructive, idempotent, local only. Long-running
 
 **Verify reconstruction** — shape: `compare` — CLI: `uidna verify <scanId> <outDir>`
 
-Build and serve the generated project, render every captured state at its viewport, and compare it with the original: pixel diff, SSIM, bounding-box geometry, computed styles, missing or extra elements, then replay every recorded transition with role and name locators and compare the resulting role tree and screenshot. Returns a DiffReport with one finding per concrete difference, plus regressions and resolved findings relative to the previous attempt.
+Build and serve the generated project, render every base state at its viewport, and compare it with the original: pixel diff, SSIM, bounding-box geometry, computed styles, missing or extra elements, then replay every recorded transition that starts from a base state or one step away from it (locating targets by data-uidna-path, then role and name) and compare the resulting role-tree change and screenshot. Returns a DiffReport with one finding per concrete difference, plus regressions and resolved findings relative to the previous attempt.
 
 Effects: writes artifacts, non-destructive, not idempotent, local only. Long-running: accepts progress tokens and cancellation.
 
@@ -233,7 +232,7 @@ Effects: writes artifacts, non-destructive, not idempotent, local only. Long-run
 
 **Report reconstruction** — shape: `workflow` — CLI: `uidna report <scanId>`
 
-Render a static HTML report for a scan: side-by-side screenshots with overlays per state and viewport, token tables, component candidates, behavior replay results, the findings of every verification attempt and the limitations. No server needed.
+Render a static HTML report for a scan: side-by-side screenshots with overlays per state and viewport, token tables, component candidates, behavior replay results, the history of every verification attempt (counts, regressions, resolved) with the findings of the latest attempt, and the limitations. No server needed.
 
 Effects: writes artifacts, non-destructive, idempotent, local only. Returns immediately.
 
@@ -281,7 +280,7 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `url` | string | no | Public page to scan with Playwright-launched Chromium. |
+| `url` | string | no | Public http(s) page to scan with Playwright-launched Chromium. robots.txt is always honored. |
 | `cdpEndpoint` | string | no | Attach to your own Chrome started with --remote-debugging-port, e.g. http://localhost:9222. Requires your authorization. |
 | `targetId` | string | no | CDP target (tab) id; defaults to the active page. |
 | `outDir` | string | yes | Directory for the generated project. |
@@ -290,7 +289,6 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 | `explore` | boolean | no | Run safe exploration. Default true. |
 | `install` | boolean | no | Run npm install in the generated project. Default true. |
 | `headless` | boolean | no |  |
-| `honorRobots` | boolean | no |  |
 | `outRoot` | string | no |  |
 
 **Result fields**

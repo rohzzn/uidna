@@ -171,6 +171,8 @@ describe('clickExclusion', () => {
       expect(clickExclusion(node({ tag: 'div', role, attrs: { tabindex: '0' } }, 1)), role).toContain('not a known safe click target');
     }
     expect(clickExclusion(node({ tag: 'button', attrs: { type: 'button', form: 'checkout' } }, 1))).toBe('submits');
+    expect(clickExclusion(node({ tag: 'button', attrs: { type: 'button', 'aria-label': 'Delete note' }, name: null, text: null }, 1))).toBe('denied name: delete');
+    expect(clickExclusion(node({ tag: 'button', attrs: { type: 'button', title: 'Pay now' }, name: null, text: null }, 1))).toBe('denied name: pay');
     expect(clickExclusion(node({ tag: 'button', attrs: { type: 'button', formaction: '/pay' } }, 1))).toBe('submits');
     expect(clickExclusion(node({ tag: 'div', attrs: { 'aria-expanded': 'false' } }, 1))).toBeNull();
     expect(clickExclusion(node({ tag: 'div', attrs: { 'aria-controls': 'panel' } }, 1))).toBeNull();

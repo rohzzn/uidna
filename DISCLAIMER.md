@@ -16,8 +16,11 @@ whose terms of use permit automated access.
 - It does not redistribute third-party assets. Fonts, images and SVGs that
   are not marked as authorized in the UI DNA document are replaced with
   labeled placeholders in generated projects.
-- It does not call any language model and sends no data off your machine.
-  Everything it captures is written under `./.uidna/` in your project.
+- It does not call any language model and sends nothing it captured off your
+  machine. Everything it captures is written under `./.uidna/` in your
+  project. The only outbound traffic besides loading the page you point it at
+  is `npm install` in a generated project, which fetches packages from the
+  npm registry (pass `install: false` to skip it).
 
 ## Your responsibilities
 

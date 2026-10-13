@@ -11,6 +11,9 @@ import type { WorkflowContext } from '../application/context.js';
 import type { ProgressReporter } from '../domain/budget.js';
 import { serializeError } from '../domain/errors.js';
 
+/** Above this many bytes the text part of a tool result only summarizes the envelope. */
+const MAX_TEXT_CONTENT_BYTES = 1_000_000;
+
 /** Build an MCP server exposing the implemented tools. */
 export function createMcpServer(ctx: WorkflowContext, handlers: HandlerMap): McpServer {
   const server = new McpServer(
@@ -70,8 +73,15 @@ export function createMcpServer(ctx: WorkflowContext, handlers: HandlerMap): Mcp
           };
         }
         const envelope = result.value;
+        const text = JSON.stringify(envelope, null, 2);
+        // Large results (a full document) travel once, as structured content; the text part points at it.
+        const content =
+          text.length > MAX_TEXT_CONTENT_BYTES
+            ? `${JSON.stringify({ evidence_id: envelope.evidence_id, limitations: envelope.limitations, unknowns: envelope.unknowns }, null, 2)}
+(result of ${text.length} bytes is in structuredContent; use inspect_dna facets or paths for smaller reads)`
+            : text;
         return {
-          content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }],
+          content: [{ type: 'text', text: content }],
           structuredContent: envelope as unknown as Record<string, unknown>,
         };
       },

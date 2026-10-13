@@ -22,12 +22,9 @@ const SEVERITY_ORDER: Record<Finding['severity'], number> = { high: 0, medium: 1
 /** All findings of a report, most severe first, then by category and state. */
 export function sortedFindings(report: DiffReport): Finding[] {
   const all = [...report.visual.flatMap((v) => v.findings), ...report.behavioral.flatMap((b) => b.findings)];
+  const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
   return all.sort(
-    (a, b) =>
-      SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
-      a.category.localeCompare(b.category) ||
-      a.stateId.localeCompare(b.stateId) ||
-      a.key.localeCompare(b.key),
+    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || compare(a.category, b.category) || compare(a.stateId, b.stateId) || compare(a.key, b.key),
   );
 }
 
@@ -64,7 +61,6 @@ export async function reconstructInterface(
     ...(input.viewports === undefined ? {} : { viewports: input.viewports }),
     ...(input.budget === undefined ? {} : { budget: input.budget }),
     ...(input.headless === undefined ? {} : { headless: input.headless }),
-    ...(input.honorRobots === undefined ? {} : { honorRobots: input.honorRobots }),
   });
   const scanOk = record('scan', since, scanned);
   if (!scanned.ok) {

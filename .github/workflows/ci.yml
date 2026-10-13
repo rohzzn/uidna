@@ -16,11 +16,22 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - run: npm run build -w @uidna/schema
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run docs:check
       - run: npm run test:unit
+      - name: Upload unit diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-diagnostics
+          path: |
+            tests/.tmp/**/*.log
+            tests/.tmp/**/*.json
+            tests/.tmp/**/*.png
+          if-no-files-found: ignore
 
   loop:
     name: Phase 1 loop on Fixture A (real Chromium)
@@ -42,7 +53,11 @@ jobs:
         with:
           name: fixture-a-loop
           path: |
+            tests/.tmp/**/scan.json
+            tests/.tmp/**/explore.json
             tests/.tmp/**/dna.json
             tests/.tmp/**/diff-report*.json
             tests/.tmp/**/report.html
+            tests/.tmp/**/*.png
+            tests/.tmp/**/*.log
           if-no-files-found: ignore

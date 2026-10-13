@@ -12,8 +12,11 @@ import { sampleDocument, sampleScanRecord, SAMPLE_SCAN_ID } from '../src/applica
 import { TOOL_CATALOG } from '../src/contracts/catalog.js';
 import { REPO_ROOT, serveFixtureA, tempDir } from './helpers.js';
 
-const textOf = (result: { content?: unknown }): string =>
-  ((result.content as { type: string; text?: string }[] | undefined) ?? []).find((c) => c.type === 'text')?.text?.slice(0, 1500) ?? '';
+const textOf = (result: unknown): string => {
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return '';
+  return (content as { type: string; text?: string }[]).find((c) => c.type === 'text')?.text?.slice(0, 1500) ?? '';
+};
 
 describe('MCP server over stdio', () => {
   let client: Client;

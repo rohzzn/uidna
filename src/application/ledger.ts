@@ -6,6 +6,7 @@
 import { type Clock, systemClock, isoNow } from '../domain/clock.js';
 import type { EvidenceKind, EvidenceRecord } from '../domain/evidence.js';
 import { newEvidenceId } from '../domain/ids.js';
+import { redactUrl } from '../browser/redact.js';
 import type { ScanStore } from './scan-store.js';
 
 /** Inputs to `EvidenceLedger.record`. */
@@ -58,6 +59,11 @@ export class EvidenceLedger {
     const updated: EvidenceRecord = { ...record, artifacts: [...record.artifacts, ...artifacts] };
     const index = this.records.findIndex((r) => r.id === record.id);
     if (index >= 0) this.records[index] = updated;
+    // Persist the artifacts too: the record is appended again and readers keep the last line per id.
+    const scanId = updated.scanId;
+    if (scanId !== undefined) {
+      void this.store.exists(scanId).then((exists) => (exists ? this.store.appendEvidence(scanId, updated) : undefined));
+    }
     return updated;
   }
 }
@@ -69,7 +75,9 @@ export function redactInputs(inputs: Readonly<Record<string, unknown>>): Record<
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(inputs)) {
     if (value === undefined) continue;
-    out[key] = SECRET_KEY.test(key) ? '[redacted]' : value;
+    if (SECRET_KEY.test(key)) out[key] = '[redacted]';
+    else if (typeof value === 'string' && /^(https?|wss?):\/\//i.test(value)) out[key] = redactUrl(value);
+    else out[key] = value;
   }
   return out;
 }

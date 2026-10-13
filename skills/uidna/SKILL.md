@@ -29,8 +29,9 @@ and report. It makes no model calls of its own.
    measured values stay alongside.
 5. **Generate.** `generate_project` writes a React + TypeScript + Tailwind + Vite baseline
    with generated names, tokens as CSS variables, observed transitions as React state,
-   placeholders for unauthorized assets and labeled mocks for backend data. It installs
-   and builds; read the build log if it fails.
+   placeholders for unauthorized assets. Backend-dependent data is not modelled in
+   Phase 1 (captures keep no response bodies), so expect static content and say so.
+   It installs and builds; read the build log if it fails.
 6. **Verify.** `verify_reconstruction` renders the project at every viewport, compares
    pixels, geometry, styles and element presence, replays every recorded transition and
    returns a DiffReport: one finding per concrete difference with the original and
@@ -38,12 +39,15 @@ and report. It makes no model calls of its own.
 7. **Repair.** Fix findings by editing the generated project locally; do not regenerate
    the whole project for a local finding. Re-run `verify_reconstruction`; it reports
    regressions and resolved findings against the previous attempt.
-8. **Report.** `report_reconstruction` writes a static HTML report. Tell the user what was
-   measured, what was observed, what you inferred and what stayed unknown, with the
+8. **Report.** `report_reconstruction` writes a static HTML report; `export_evidence`
+   writes a portable bundle when someone else needs the evidence. Tell the user what
+   was measured, what was observed, what you inferred and what stayed unknown, with the
    scan id and the report path.
 
-`reconstruct_interface` runs steps 2 to 8 without you when a quick baseline is enough;
-`uidna reconstruct <url> <outDir>` does the same from a shell.
+`reconstruct_interface` runs the capture, exploration, generation, verification and
+report steps (2, 5, 6 and 8) without you when a quick baseline is enough; understanding,
+annotating and repairing (3, 4 and 7) stay yours. `uidna reconstruct <url> <outDir>` does
+the same from a shell.
 
 ## Rules
 

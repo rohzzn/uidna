@@ -33,7 +33,8 @@ export async function readToolVersion(): Promise<string> {
       // try the next candidate
     }
   }
-  return '0.0.0';
+  // The version is written into every document; a missing manifest is an installation error, not a value to invent.
+  throw new Error('uidna package.json not found next to the CLI; reinstall the package');
 }
 
 interface GlobalOptions {
@@ -86,10 +87,6 @@ function registerTool(program: Command, contract: ToolContract, handlers: Handle
         const text = await readFile(resolve(ctx.cwd, input.patchesFile), 'utf8');
         input.patches = JSON.parse(text) as unknown;
         delete input.patchesFile;
-      }
-      // Config defaults for scan-like commands.
-      if ('viewports' in fields.reduce<Record<string, true>>((acc, f) => ({ ...acc, [f.name]: true }), {}) && input.viewports === undefined && ctx.config.viewports) {
-        input.viewports = ctx.config.viewports;
       }
     } catch (error) {
       process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
