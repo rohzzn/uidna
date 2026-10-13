@@ -137,7 +137,10 @@ describe('classesFor: border family', () => {
   });
   it('maps outline and box-shadow', () => {
     expect(classes({ 'outline-style': 'solid', 'outline-width': '2px', 'outline-color': 'rgb(47, 91, 234)', 'outline-offset': '2px' })).toEqual(['outline-[#2f5bea]', 'outline-[2px]', 'outline-offset-[2px]', 'outline-solid']);
-    expect(classes({ 'box-shadow': 'rgba(27, 31, 42, 0.08) 0px 8px 24px 0px' })).toEqual(['shadow-[rgba(27,31,42,0.08)_0px_8px_24px_0px]']);
+    expect(classes({ 'box-shadow': 'rgba(27, 31, 42, 0.08) 0px 8px 24px 0px' })).toEqual(['shadow-[0px_8px_24px_0px_rgba(27,31,42,0.08)]']);
+    expect(classes({ 'box-shadow': 'rgb(0, 0, 0) 0px 1px 2px 0px inset, rgba(0, 0, 0, 0.5) 0px 4px 8px 0px' })).toEqual([
+      'shadow-[inset_0px_1px_2px_0px_rgb(0,0,0),0px_4px_8px_0px_rgba(0,0,0,0.5)]',
+    ]);
     expect(classes({ 'box-shadow': 'none' })).toEqual(['shadow-none']);
   });
 });

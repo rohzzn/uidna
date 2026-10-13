@@ -92,6 +92,8 @@ export function buildState(tree: RawTree, ax: AxIndex | null, options: BuildOpti
     };
     rawIndex: number;
     opacityZero: boolean;
+    /** Inside a closed <details> (other than its summary): Chromium keeps retained layout boxes there, but nothing renders. */
+    inClosedDetails: boolean;
     roleDepth: number;
     controlsBackendIds: readonly number[];
   }
@@ -104,15 +106,18 @@ export function buildState(tree: RawTree, ax: AxIndex | null, options: BuildOpti
   tree.elements.forEach((element, rawIndex) => {
     const parentDraft = element.parent === null ? null : (draftByRaw.get(element.parent) ?? null);
     if (element.parent !== null && parentDraft === null) return; // parent was skipped: skip the subtree
-    if (!includeHidden && element.box === null && element.parent !== null) return;
+    const inClosedDetails =
+      parentDraft !== null &&
+      (parentDraft.inClosedDetails || (parentDraft.node.tag === 'details' && parentDraft.node.attrs.open === undefined && element.tag !== 'summary'));
+    if (!includeHidden && (element.box === null || inClosedDetails) && element.parent !== null) return;
     const id = `n${drafts.length}`;
     const axInfo = element.backendNodeId === null ? undefined : ax?.get(element.backendNodeId);
     const style = withStyles ? (element.style ?? {}) : null;
     const ownOpacityZero = style?.opacity === '0';
     const opacityZero = ownOpacityZero || (parentDraft?.opacityZero ?? false);
-    const visible =
-      element.box !== null && element.box.width > 0 && element.box.height > 0 && style?.visibility !== 'hidden' && !opacityZero;
     const attrs = filterAttributes(element, truncated);
+    const box = inClosedDetails ? null : element.box;
+    const visible = box !== null && box.width > 0 && box.height > 0 && style?.visibility !== 'hidden' && !opacityZero;
     const role = axInfo?.role ?? null;
     const a11y: { -readonly [K in keyof A11yProps]: A11yProps[K] } = axInfo ? { ...axInfo.props } : {};
     if (axInfo?.description) a11y.description = axInfo.description;
@@ -127,7 +132,7 @@ export function buildState(tree: RawTree, ax: AxIndex | null, options: BuildOpti
       name: axInfo?.name ?? null,
       attrs,
       text: normalizeText(element.text, truncated),
-      box: element.box,
+      box,
       styleId: styleId(style),
       a11y,
       visible,
@@ -140,6 +145,7 @@ export function buildState(tree: RawTree, ax: AxIndex | null, options: BuildOpti
       node,
       rawIndex,
       opacityZero,
+      inClosedDetails,
       roleDepth: parentDraft === null ? 0 : parentDraft.roleDepth + (parentDraft.node.role === null ? 0 : 1),
       controlsBackendIds: axInfo?.controlsBackendIds ?? [],
     };

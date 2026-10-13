@@ -5,7 +5,7 @@
  * `open`, and hover/focus transitions become `hover:`/`focus:` variants on
  * the target. Everything that cannot be reproduced is reported with a reason.
  */
-import type { Transition, UiState } from '@uidna/schema';
+import type { Transition, UiNode, UiState } from '@uidna/schema';
 import { stableStringify } from '../domain/digest.js';
 import { keptAttributes } from './attrs.js';
 import { comparePaths } from './components.js';
@@ -108,6 +108,15 @@ interface NodeChange {
 }
 
 /** Diff two states node by node (matched by path). Null when the DOM structure differs. */
+/** True when a proper ancestor of `path` is not rendered (box null) in the indexed state. */
+function hiddenByAncestor(byPath: ReadonlyMap<string, UiNode>, path: string): boolean {
+  const segments = path.split('/');
+  for (let depth = segments.length - 1; depth >= 1; depth -= 1) {
+    if (byPath.get(segments.slice(0, depth).join('/'))?.box === null) return true;
+  }
+  return path !== '' && byPath.get('')?.box === null;
+}
+
 function diffStates(
   model: GenerationModel,
   from: UiState,
@@ -140,7 +149,10 @@ function diffStates(
     const text = (nodeFrom.text ?? '') !== (nodeTo.text ?? '') ? { from: nodeFrom.text ?? '', to: nodeTo.text ?? '' } : null;
     let classes: { whenTrue: string[]; whenFalse: string[] } | null = null;
     const styleChanged = stableStringify(from.styles[nodeFrom.styleId] ?? {}) !== stableStringify(to.styles[nodeTo.styleId] ?? {});
-    if (styleChanged || nodeFrom.pseudo !== undefined || nodeTo.pseudo !== undefined || nodeFrom.box === null || nodeTo.box === null) {
+    // A node that is unrendered only because an ancestor is unrendered needs no classes of its own:
+    // its visibility follows the ancestor, which carries the change.
+    const impliedByAncestor = !styleChanged && (hiddenByAncestor(fromIndex.byPath, path) || hiddenByAncestor(toIndex.byPath, path));
+    if (!impliedByAncestor && (styleChanged || nodeFrom.pseudo !== undefined || nodeTo.pseudo !== undefined || nodeFrom.box === null || nodeTo.box === null)) {
       const viewFrom = viewInState(gn, from, fromIndex.byPath);
       const viewTo = viewInState(gn, to, toIndex.byPath);
       if (viewFrom !== null && viewTo !== null) {

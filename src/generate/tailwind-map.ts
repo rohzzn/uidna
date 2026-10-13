@@ -276,6 +276,44 @@ export function arbitraryValue(value: string): string | null {
   return v;
 }
 
+/** Split on commas that are not inside parentheses. */
+function splitTopLevel(value: string, separator: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of value) {
+    if (ch === '(') depth += 1;
+    if (ch === ')') depth = Math.max(0, depth - 1);
+    if (ch === separator && depth === 0) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts.map((p) => p.trim()).filter((p) => p.length > 0);
+}
+
+const COLOR_TOKEN = /^(rgba?\(|hsla?\(|color\(|oklch\(|oklab\(|lab\(|lch\(|#|transparent$|currentcolor$|[a-z]+$)/i;
+
+/**
+ * Reorder each layer of a computed `box-shadow` (`<color> <x> <y> <blur> <spread> [inset]`)
+ * into Tailwind's expected `[inset] <x> <y> <blur> <spread> <color>` form. Tailwind reads an
+ * arbitrary shadow that starts with a color as a shadow *color*, which drops the shadow.
+ */
+export function normalizeBoxShadow(value: string): string {
+  return splitTopLevel(value, ',')
+    .map((layer) => {
+      const tokens = splitTopLevel(layer, ' ');
+      const inset = tokens.filter((t) => t.toLowerCase() === 'inset');
+      const colors = tokens.filter((t) => t.toLowerCase() !== 'inset' && COLOR_TOKEN.test(t) && !/^-?\d/.test(t));
+      const lengths = tokens.filter((t) => !inset.includes(t) && !colors.includes(t));
+      return [...inset, ...lengths, ...colors].join(' ');
+    })
+    .join(', ');
+}
+
 /** Normalize a font-family list for token matching: quotes removed, single spaces, lowercase. */
 export function normalizeFontFamily(value: string): string {
   return value
@@ -665,7 +703,7 @@ export function classesFor(style: StyleRecord, options: ClassOptions = {}): Clas
     if (value !== undefined) {
       if (value === 'none') add('shadow-none');
       else {
-        const arb = arbitraryValue(value);
+        const arb = arbitraryValue(normalizeBoxShadow(value));
         if (arb === null) skip('box-shadow', value, 'shadow cannot be expressed as an arbitrary value');
         else add(`shadow-[${arb}]`);
       }

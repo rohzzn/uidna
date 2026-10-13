@@ -253,10 +253,12 @@ export const CAPTURED_ATTRIBUTES = [
   'autocomplete',
   'method',
   'action',
+  'form',
+  'formaction',
 ] as const;
 
 /** Attribute name prefixes kept on captured nodes. */
-export const CAPTURED_ATTRIBUTE_PREFIXES = ['aria-', 'data-state', 'data-open', 'data-active', 'data-selected', 'data-expanded'] as const;
+export const CAPTURED_ATTRIBUTE_PREFIXES = ['aria-', 'data-state', 'data-open', 'data-active', 'data-selected', 'data-expanded', 'data-uidna-', 'data-placeholder'] as const;
 
 /** Maximum stored attribute value length. */
 export const MAX_ATTR_LENGTH = 512;
