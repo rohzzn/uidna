@@ -10,7 +10,10 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ScanStore } from '../src/application/scan-store.js';
 import { sampleDocument, sampleScanRecord, SAMPLE_SCAN_ID } from '../src/application/testing.js';
 import { TOOL_CATALOG } from '../src/contracts/catalog.js';
-import { REPO_ROOT, tempDir } from './helpers.js';
+import { REPO_ROOT, serveFixtureA, tempDir } from './helpers.js';
+
+const textOf = (result: { content?: unknown }): string =>
+  ((result.content as { type: string; text?: string }[] | undefined) ?? []).find((c) => c.type === 'text')?.text?.slice(0, 1500) ?? '';
 
 describe('MCP server over stdio', () => {
   let client: Client;
@@ -62,6 +65,45 @@ describe('MCP server over stdio', () => {
     const text = (result.content as { type: string; text?: string }[]).find((c) => c.type === 'text')?.text ?? '';
     expect(JSON.parse(text).evidence_id).toBe(envelope.evidence_id);
   });
+
+  it('drives the skill loop through MCP: reconstruct, annotate, inspect', async () => {
+    const server = await serveFixtureA();
+    try {
+      const outDir = await tempDir('mcp-project');
+      const reconstructed = await client.callTool({
+        name: 'reconstruct_interface',
+        arguments: { url: server.url, outDir, viewports: [390], budget: { actions: 4 }, outRoot },
+      });
+      expect(reconstructed.isError, textOf(reconstructed)).toBeFalsy();
+      const loop = reconstructed.structuredContent as {
+        result: { scanId: string; steps: { name: string; ok: boolean; error: string | null }[]; diffReport: { summary: { transitionsReplayed: number; transitionsMatched: number } } | null; reportPath: string | null };
+      };
+      expect(loop.result.steps.filter((s) => !s.ok)).toEqual([]);
+      expect(loop.result.diffReport?.summary.transitionsReplayed).toBeGreaterThan(0);
+      expect(loop.result.diffReport?.summary.transitionsMatched).toBe(loop.result.diffReport?.summary.transitionsReplayed);
+      expect(loop.result.reportPath).not.toBeNull();
+
+      const components = await client.callTool({ name: 'search_components', arguments: { scanId: loop.result.scanId, outRoot } });
+      expect(components.isError, textOf(components)).toBeFalsy();
+      const first = (components.structuredContent as { result: { candidates: { id: string }[] } }).result.candidates[0];
+      expect(first).toBeDefined();
+      const annotated = await client.callTool({
+        name: 'annotate_dna',
+        arguments: { scanId: loop.result.scanId, outRoot, patches: [{ op: 'name', target: 'component', id: first?.id ?? '', value: 'NamedByAgent', rationale: 'e2e', confidence: 0.9 }] },
+      });
+      expect(annotated.isError, textOf(annotated)).toBeFalsy();
+      expect((annotated.structuredContent as { result: { applied: unknown[] } }).result.applied).toHaveLength(1);
+
+      const inspected = await client.callTool({ name: 'inspect_dna', arguments: { scanId: loop.result.scanId, outRoot, facet: 'components' } });
+      expect(inspected.isError, textOf(inspected)).toBeFalsy();
+      const facet = (inspected.structuredContent as { result: { value: { definitions: { id: string; name?: { value: string; provenance: { kind: string; source: string } } }[] } } }).result.value;
+      const named = facet.definitions.find((d) => d.id === first?.id);
+      expect(named?.name?.value).toBe('NamedByAgent');
+      expect(named?.name?.provenance).toMatchObject({ kind: 'inferred', source: 'agent' });
+    } finally {
+      await server.close();
+    }
+  }, 900_000);
 
   it('reports invalid input and missing scans as errors, not crashes', async () => {
     const invalid = await client.callTool({ name: 'inspect_dna', arguments: { scanId: 'nope' } });

@@ -127,20 +127,20 @@ The full catalog, generated from the contracts, is in [`docs/tools.md`](docs/too
 ## A sample investigation
 
 <!-- numbers:begin -->
-Measured on Fixture A (`http://127.0.0.1:61210/`) by scan `scan_20261013_45381e` with tool version 0.1.0:
+Measured on Fixture A (`http://127.0.0.1:64942/`) by scan `scan_20261013_afeec6` with tool version 0.1.0:
 
 | Step | Result |
 | --- | --- |
-| scan | 3 base states at 1280, 768, 390 px; 71 / 71 / 71 nodes; 1 asset; budget used 115719 ms |
+| scan | 3 base states at 1280, 768, 390 px; 71 / 71 / 71 nodes; 1 asset; 117.7 s of browser time for scan and explore together |
 | explore (safe) | 36 interactive elements discovered, 88 interactions performed, 69 produced a new state, 44 skipped with a reason; 73 transitions, 69 derived states |
 | tokens | 10 colors, 17 typography styles, 11 font sizes, 12 spacing values, 4 radii, 1 shadow, 2 breakpoints |
 | components | 7 candidates, 65 instances (largest: Component01 with 17) |
 | behavior | 73 observed rules; 0 limitations recorded |
-| verify attempt 1 | 91 findings (layout 65, typography 3, color 20, asset 3); pixel diff 1280px 0.66%, 768px 0.53%, 390px 5.50%; 73/73 replayed transitions matched; 0 regressions, 0 resolved |
-| verify attempt 2 | 117 findings (layout 65, typography 3, color 46, asset 3); pixel diff 1280px 1.29%, 768px 1.61%, 390px 6.25%; 73/73 replayed transitions matched; 26 regressions, 0 resolved |
-| verify attempt 3 | 91 findings (layout 65, typography 3, color 20, asset 3); pixel diff 1280px 0.66%, 768px 0.53%, 390px 5.50%; 73/73 replayed transitions matched; 0 regressions, 26 resolved |
-| verify attempt 4 | 115 findings (layout 65, typography 3, color 20, asset 3, behavior 24); pixel diff 1280px 0.66%, 768px 0.53%, 390px 5.50%; 62/73 replayed transitions matched; 24 regressions, 0 resolved |
-| verify attempt 5 | 91 findings (layout 65, typography 3, color 20, asset 3); pixel diff 1280px 0.66%, 768px 0.53%, 390px 5.50%; 73/73 replayed transitions matched; 0 regressions, 24 resolved |
+| verify attempt 1 | 21 findings (layout 9, typography 3, color 6, asset 3); pixel diff 1280px 0.66%, 768px 0.53%, 390px 0.80%; 73/73 replayed transitions matched; 0 regressions, 0 resolved |
+| verify attempt 2 | 35 findings (layout 9, typography 3, color 20, asset 3); pixel diff 1280px 1.29%, 768px 1.61%, 390px 1.84%; 73/73 replayed transitions matched; 14 regressions, 0 resolved |
+| verify attempt 3 | 21 findings (layout 9, typography 3, color 6, asset 3); pixel diff 1280px 0.66%, 768px 0.53%, 390px 0.80%; 73/73 replayed transitions matched; 0 regressions, 14 resolved |
+| verify attempt 4 | 45 findings (layout 9, typography 3, color 6, asset 3, behavior 24); pixel diff 1280px 0.66%, 768px 0.53%, 390px 0.80%; 62/73 replayed transitions matched; 24 regressions, 0 resolved |
+| verify attempt 5 | 21 findings (layout 9, typography 3, color 6, asset 3); pixel diff 1280px 0.66%, 768px 0.53%, 390px 0.80%; 73/73 replayed transitions matched; 0 regressions, 24 resolved |
 
 Pixel ratios depend on the fonts of the machine that rendered them; the counts do not.
 <!-- numbers:end -->
