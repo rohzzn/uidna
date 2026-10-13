@@ -33,10 +33,20 @@
   "engines": {
     "node": ">=20.19"
   },
-  "keywords": ["ui", "schema", "design-tokens", "reverse-engineering", "zod", "json-schema"],
+  "keywords": [
+    "ui",
+    "schema",
+    "design-tokens",
+    "reverse-engineering",
+    "zod",
+    "json-schema"
+  ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/uidna/uidna",
+    "url": "https://github.com/rohzzn/uidna",
     "directory": "packages/schema"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
