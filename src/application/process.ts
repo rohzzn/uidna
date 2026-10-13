@@ -3,8 +3,9 @@
  * projects with a timeout, captured output and an optional log file.
  */
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { toError, uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 
@@ -34,9 +35,26 @@ export interface RunCommandOptions {
   readonly maxBufferBytes?: number;
 }
 
-/** The npm executable for this platform. */
+/** The npm executable for this platform (only used when `npm-cli.js` cannot be located). */
 export function npmExecutable(): string {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+}
+
+/**
+ * Locate npm's JavaScript entry point so npm can be spawned through the
+ * current Node binary without a shell. Checks `npm_execpath` (set when
+ * running under npm) and the npm bundled next to the Node binary.
+ */
+export function npmCliPath(): string | null {
+  const fromEnv = process.env.npm_execpath;
+  if (fromEnv && fromEnv.endsWith("npm-cli.js") && existsSync(fromEnv)) return fromEnv;
+  const nodeDir = dirname(process.execPath);
+  const candidates = [
+    join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    join(nodeDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  for (const candidate of candidates) if (existsSync(candidate)) return candidate;
+  return null;
 }
 
 /**
@@ -138,7 +156,9 @@ export async function runCommand(command: string, args: readonly string[], optio
   });
 }
 
-/** Run an npm script or command in `cwd`. */
+/** Run an npm script or command in `cwd`. Prefers `node npm-cli.js` (no shell); falls back to the platform executable. */
 export async function runNpm(args: readonly string[], options: RunCommandOptions): Promise<Result<CommandOutcome>> {
+  const cli = npmCliPath();
+  if (cli) return runCommand(process.execPath, [cli, ...args], options);
   return runCommand(npmExecutable(), args, options);
 }

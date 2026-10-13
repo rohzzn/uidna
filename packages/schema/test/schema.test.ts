@@ -192,3 +192,27 @@ describe('document', () => {
     }
   });
 });
+
+describe('reference example', () => {
+  it('validates docs/examples/fixture-a.dna.json when it exists', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { fileURLToPath } = await import('node:url');
+    const path = fileURLToPath(new URL('../../../docs/examples/fixture-a.dna.json', import.meta.url));
+    let text: string | null = null;
+    try {
+      text = await readFile(path, 'utf8');
+    } catch {
+      text = null;
+    }
+    if (text === null) {
+      console.warn('docs/examples/fixture-a.dna.json not present; run the e2e loop and scripts/refresh-example.ts');
+      return;
+    }
+    const result = validateUiDna(JSON.parse(text));
+    expect(formatIssues(result)).toEqual([]);
+    if (!result.success) return;
+    expect(result.data.dnaVersion).toBe(UI_DNA_VERSION);
+    expect(result.data.states.items.length).toBeGreaterThan(0);
+    expect(result.data.states.transitions.length).toBeGreaterThan(0);
+  });
+});
