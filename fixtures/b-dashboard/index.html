@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lumen — Orders</title>
+  <meta name="description" content="Fixture B for UI DNA: an orders dashboard with a collapsing sidebar, stat cards and a table loaded from a JSON endpoint that is searched, filtered and sorted on the client.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="sidebar-toggle" type="button" aria-expanded="false" aria-controls="sidebar" aria-label="Open navigation">
+      <span class="sidebar-toggle-bar" aria-hidden="true"></span>
+      <span class="sidebar-toggle-bar" aria-hidden="true"></span>
+      <span class="sidebar-toggle-bar" aria-hidden="true"></span>
+    </button>
+    <p class="brand"><span class="brand-mark" aria-hidden="true"></span><span>Lumen</span></p>
+    <span class="topbar-spacer"></span>
+    <button class="button" type="button">Sign out</button>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <nav class="sidebar-panel" aria-label="Main">
+        <ul class="nav-list">
+          <li><a class="nav-link" href="#overview"><span class="nav-icon" aria-hidden="true"></span><span class="nav-label">Overview</span></a></li>
+          <li><a class="nav-link" href="#orders" aria-current="page"><span class="nav-icon nav-icon-round" aria-hidden="true"></span><span class="nav-label">Orders</span></a></li>
+          <li><a class="nav-link" href="#customers"><span class="nav-icon nav-icon-arch" aria-hidden="true"></span><span class="nav-label">Customers</span></a></li>
+          <li><a class="nav-link" href="#settings"><span class="nav-icon nav-icon-square" aria-hidden="true"></span><span class="nav-label">Settings</span></a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <main class="content" id="main">
+      <div class="page-head">
+        <h1 class="page-title">Orders</h1>
+        <p class="page-lead">Every order from the last 30 days.</p>
+      </div>
+
+      <section class="stats" id="overview" aria-labelledby="overview-title">
+        <h2 class="visually-hidden" id="overview-title">Overview</h2>
+        <div class="stat-grid">
+          <article class="stat" aria-labelledby="stat-revenue">
+            <p class="stat-label" id="stat-revenue">Revenue</p>
+            <p class="stat-value">$1,457.35</p>
+            <p class="stat-meta">From 4 paid orders</p>
+          </article>
+          <article class="stat" aria-labelledby="stat-total">
+            <p class="stat-label" id="stat-total">Total orders</p>
+            <p class="stat-value">10</p>
+            <p class="stat-meta">Last 30 days</p>
+          </article>
+          <article class="stat" aria-labelledby="stat-awaiting">
+            <p class="stat-label" id="stat-awaiting">Awaiting payment</p>
+            <p class="stat-value">3</p>
+            <p class="stat-meta">Not paid yet</p>
+          </article>
+          <article class="stat" aria-labelledby="stat-refunds">
+            <p class="stat-label" id="stat-refunds">Refunds</p>
+            <p class="stat-value">$518.39</p>
+            <p class="stat-meta">From 3 refunded orders</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel orders" id="orders" aria-labelledby="orders-title">
+        <div class="orders-head">
+          <h2 class="section-title" id="orders-title">Recent orders</h2>
+          <p class="count" id="orders-count" role="status">Loading orders…</p>
+        </div>
+
+        <div class="toolbar">
+          <div class="search" role="search">
+            <label class="visually-hidden" for="order-search">Search orders</label>
+            <input class="search-input" id="order-search" name="q" type="search" placeholder="Search by order or customer" autocomplete="off" aria-controls="orders-table">
+          </div>
+          <div class="chips" role="group" aria-label="Filter by status">
+            <button class="chip" type="button" data-status="all" aria-pressed="true">All</button>
+            <button class="chip" type="button" data-status="Paid" aria-pressed="false">Paid</button>
+            <button class="chip" type="button" data-status="Pending" aria-pressed="false">Pending</button>
+            <button class="chip" type="button" data-status="Refunded" aria-pressed="false">Refunded</button>
+            <button class="chip" type="button" data-status="Cancelled" aria-pressed="false">Cancelled</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table" id="orders-table" aria-labelledby="orders-title">
+            <thead>
+              <tr>
+                <th class="col-id" scope="col" aria-sort="ascending"><button class="sort" type="button" data-field="id">Order<span class="sort-icon" aria-hidden="true"></span></button></th>
+                <th class="col-customer" scope="col"><button class="sort" type="button" data-field="customer">Customer<span class="sort-icon" aria-hidden="true"></span></button></th>
+                <th class="col-status" scope="col">Status</th>
+                <th class="col-amount" scope="col"><button class="sort" type="button" data-field="amount">Amount<span class="sort-icon" aria-hidden="true"></span></button></th>
+                <th class="col-date" scope="col"><button class="sort" type="button" data-field="date">Date<span class="sort-icon" aria-hidden="true"></span></button></th>
+                <th class="col-actions" scope="col"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="orders-body"></tbody>
+          </table>
+        </div>
+
+        <p class="empty" id="orders-empty" hidden>No orders match your filters.</p>
+        <p class="toast" id="toast" role="status" hidden></p>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

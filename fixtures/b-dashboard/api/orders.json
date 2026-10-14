@@ -1,0 +1,16 @@
+{
+  "orders": [
+    { "id": "ORD-1001", "customer": "Mara Quinn", "status": "Paid", "amount": 120.00, "date": "2026-09-14" },
+    { "id": "ORD-1002", "customer": "Theo Hart", "status": "Pending", "amount": 89.50, "date": "2026-09-03" },
+    { "id": "ORD-1003", "customer": "Lina Okafor", "status": "Refunded", "amount": 240.00, "date": "2026-09-21" },
+    { "id": "ORD-1004", "customer": "Jonas Berg", "status": "Paid", "amount": 35.25, "date": "2026-08-30" },
+    { "id": "ORD-1005", "customer": "Priya Raman", "status": "Paid", "amount": 1240.00, "date": "2026-09-09" },
+    { "id": "ORD-1006", "customer": "Omar Haddad", "status": "Pending", "amount": 15.75, "date": "2026-09-27" },
+    { "id": "ORD-1007", "customer": "Elena Marsh", "status": "Refunded", "amount": 178.40, "date": "2026-09-01" },
+    { "id": "ORD-1008", "customer": "Kofi Mensah", "status": "Paid", "amount": 62.10, "date": "2026-09-18" },
+    { "id": "ORD-1009", "customer": "Sofia Lind", "status": "Pending", "amount": 305.60, "date": "2026-08-26" },
+    { "id": "ORD-1010", "customer": "Ravi Patel", "status": "Refunded", "amount": 99.99, "date": "2026-09-12" }
+  ],
+  "total": 10,
+  "currency": "USD"
+}
