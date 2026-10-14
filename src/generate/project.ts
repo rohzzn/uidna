@@ -23,6 +23,9 @@ export interface MockRecord {
   readonly reason: string;
 }
 
+/** Name of the manifest file written to the project root (`GeneratedManifest`). */
+export const MANIFEST_FILE = 'uidna.generated.json';
+
 /** The manifest written to `uidna.generated.json`. */
 export interface GeneratedManifest {
   readonly scanId: string;
@@ -33,7 +36,7 @@ export interface GeneratedManifest {
   readonly viewports: readonly { readonly width: number; readonly height: number; readonly breakpoint: string | null }[];
   /** Every generated file (relative, forward slashes); used to remove stale files on the next run. */
   readonly files: readonly string[];
-  /** How pages are wired and which page renders at which route. */
+  /** How pages are wired and which page renders at which route; only the listed pages were generated (the verifier compares those). */
   readonly router: RouterMode;
   readonly pages: readonly { readonly pageId: string; readonly name: string; readonly file: string; readonly route: string }[];
   /** Behavior tests written to `tests/behavior.spec.ts`, or null when they were not requested. */

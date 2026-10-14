@@ -24,6 +24,7 @@ import { compareStrings } from './jsx.js';
 import { mockNames, renderDataMock, type DataMockInput } from './mocks.js';
 import { isAncestorPath, type GenNode, type GenerationModel } from './model.js';
 import {
+  MANIFEST_FILE,
   renderGitignore,
   renderIndexCss,
   renderIndexHtml,
@@ -86,8 +87,7 @@ const OptionsSchema = z.object({
   evidenceId: z.string().min(1),
 });
 
-/** Name of the manifest file written to the project root. */
-export const MANIFEST_FILE = 'uidna.generated.json';
+export { MANIFEST_FILE };
 
 function toPosix(path: string): string {
   return path.split(sep).join('/');

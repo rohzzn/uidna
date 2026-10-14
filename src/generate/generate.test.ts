@@ -6,9 +6,11 @@ import { formatIssues, inferred, validateUiDna, type UiDnaDocument, type UiNode 
 import type { GenerateRecord } from '../application/records.js';
 import { fixedClock } from '../domain/clock.js';
 import { unwrap } from '../domain/result.js';
+import type { BehaviorReport, TestStep, TransitionTest } from './behavior.js';
 import { generateProject, MANIFEST_FILE } from './index.js';
 import { redactJson } from './mocks.js';
 import { breakpointNames, buildModel } from './model.js';
+import { renderBehaviorSpec } from './tests.js';
 import { FIXTURE_CAPTURED_AT, FIXTURE_FORM_URL, FIXTURE_MULTI_SCAN_ID, FIXTURE_PATHS, FIXTURE_SCAN_ID, fixtureDocument, MULTI_PATHS, multiPageFormDocument } from './testing.js';
 
 const ROOT = join(process.cwd(), 'tests', '.tmp', 'generate-unit');
@@ -818,6 +820,35 @@ describe('multi-page regressions', () => {
     expect(features).toContain('{error01 ? "Enter your full name." : ""}');
   });
 
+  it('never sets a test up through a side effect: transitions whose from-state only a blocked submit reaches are reported and skipped', async () => {
+    const dna = multiPageFormDocument();
+    // A form without client-side validation: the empty submit sent a (blocked) POST and the fills start from the state it produced.
+    dna.states.transitions = dna.states.transitions.map((t) => {
+      if (t.id === 'tr_02') return { ...t, sideEffects: true, network: { requests: 1, nonGet: 1 } };
+      if (t.id === 'tr_03') return { ...t, from: 'st_05' };
+      return t;
+    });
+    dna.states.items = dna.states.items.map((s) => (s.id === 'st_06' ? { ...s, parentStateId: 'st_05' } : s));
+    expect(formatIssues(validateUiDna(dna))).toEqual([]);
+    const outDir = join(root, 'side-effect-setup');
+    await generate(dna, outDir);
+    const spec = await read(outDir, 'tests/behavior.spec.ts');
+    const reason = (from: string): string => `from-state ${from} is reachable only through tr_02: tr_02 caused side effects when it was observed (a non-GET request) and is never repeated; this transition is not reproduced from that state and not tested, because its test would have to repeat tr_02`;
+    expect(spec).toContain(`  // ${reason('st_05')}\n  test.skip("tr_03: fill textbox \\"Full name\\" at 1/0/2/0/1: not reproduced", async () => {`);
+    expect(spec).toContain(`  // ${reason('st_06')}\n  test.skip("tr_04: fill textbox \\"Email\\" at 1/0/2/1/1: not reproduced", async () => {`);
+    expect(spec).toContain('test.skip("tr_02: submit button \\"Create account\\" at 1/0/2/2/0: not replayed", async () => {');
+    // No test replays the submit, as a step or as setup: the only test left is the navigation from a base state.
+    expect(spec).not.toContain('submitForm(');
+    expect(spec).not.toContain('setup01');
+    expect(spec.match(/\n {2}test\(/g)).toHaveLength(1);
+    expect(spec).toContain('test("tr_01: click link \\"Features\\" at 0/0/1/1/0 (390×844)", async ({ page }) => {');
+    const manifest = JSON.parse(await read(outDir, MANIFEST_FILE)) as { behaviorTests: unknown };
+    expect(manifest.behaviorTests).toEqual({ tests: 1, skipped: 5, deduplicated: [], notReplayed: ['tr_02', 'tr_05'] });
+    const readme = await read(outDir, 'README.md');
+    expect(readme).toContain(`- \`tr_03\` fill on textbox "Full name" at 1/0/2/0/1: ${reason('st_05')}`);
+    expect(readme).toContain(`- \`tr_05\` submit on button "Create account" at 1/0/2/2/0: ${reason('st_07')}`);
+  });
+
   it('replays submits through a helper that blocks the native request, for clicked submit buttons too', async () => {
     const outDir = join(root, 'submit-guard');
     await generate(multiPageFormDocument(), outDir);
@@ -826,6 +857,46 @@ describe('multi-page regressions', () => {
     expect(spec).toContain("form?.addEventListener('submit', (event) => { event.preventDefault(); }, { once: true });");
     expect(spec).toContain('await submitForm(target, true);');
     expect(spec).not.toMatch(/await target\.click\(\);\n\s+await expect\(page\.locator\("\[data-uidna-path=\\"1\/0\/2\/0\/1\\"\]"\)\)\.toHaveAttribute\("aria-invalid"/);
+  });
+});
+
+describe('renderBehaviorSpec', () => {
+  const step: TestStep = { action: 'click', locator: { path: '0/1', role: 'link', name: 'Help', nth: 0 }, key: null, value: null, control: 'text', click: false };
+  const report = (transitionId: string, extra: Partial<BehaviorReport> = {}): BehaviorReport => ({
+    transitionId,
+    action: 'click',
+    target: 'link "Help" at 0/1',
+    status: 'implemented',
+    detail: 'navigates',
+    file: 'src/pages/Home.tsx',
+    test: null,
+    neverReplayed: false,
+    network: { requests: 0, nonGet: 0 },
+    ...extra,
+  });
+  const urlTest = (transitionId: string, pattern: string): TransitionTest => ({ transitionId, pageId: 'pg_01', route: '/', viewport: { width: 1280, height: 800 }, setup: [], step, expectations: [{ kind: 'url', pattern }], revert: null, dedupeKey: transitionId });
+
+  it('names the side effect of a never-replayed transition from its network counts', () => {
+    const { code, summary } = renderBehaviorSpec('scan_x', [
+      report('tr_01', { neverReplayed: true, network: { requests: 1, nonGet: 1 } }),
+      report('tr_02', { neverReplayed: true, network: { requests: 4, nonGet: 3 } }),
+      report('tr_03', { neverReplayed: true, network: { requests: 0, nonGet: 0 } }),
+    ]);
+    expect(code).toContain('test.skip("tr_01: click link \\"Help\\" at 0/1: not replayed", async () => {\n    // Reason: the action caused a side effect when it was observed (a non-GET request); UI DNA never repeats it.');
+    expect(code).toContain('test.skip("tr_02: click link \\"Help\\" at 0/1: not replayed", async () => {\n    // Reason: the action caused a side effect when it was observed (3 non-GET requests); UI DNA never repeats it.');
+    expect(code).toContain('test.skip("tr_03: click link \\"Help\\" at 0/1: not replayed", async () => {\n    // Reason: the action caused a side effect when it was observed (a navigation); UI DNA never repeats it.');
+    expect(summary).toEqual({ tests: 0, skipped: 3, deduplicated: [], notReplayed: ['tr_01', 'tr_02', 'tr_03'] });
+  });
+
+  it('asserts a URL with a colon inside a segment literally and matches only parameter and splat segments', () => {
+    const { code } = renderBehaviorSpec('scan_x', [
+      report('tr_01', { test: urlTest('tr_01', '/wiki/Help:Contents') }),
+      report('tr_02', { test: urlTest('tr_02', '/wiki/Help:Contents/:id') }),
+      report('tr_03', { test: urlTest('tr_03', '/docs/*') }),
+    ]);
+    expect(code).toContain('await expect(page).toHaveURL("/wiki/Help:Contents");');
+    expect(code).toContain('await expect(page).toHaveURL(new RegExp("/wiki/Help:Contents/[^/]+$"));');
+    expect(code).toContain('await expect(page).toHaveURL(new RegExp("/docs/.*$"));');
   });
 });
 

@@ -8,7 +8,7 @@
  * A failing run never throws: failures are results; a run that could not
  * start says why. `parsePlaywrightReport` is pure.
  */
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, rm, stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { runNpm } from '../application/process.js';
@@ -228,10 +228,23 @@ async function notRunnable(outDir: string): Promise<string | null> {
   return null;
 }
 
+/** Remove the raw report an earlier run left at `path`; null when it is gone (or never existed), else why the run cannot start. */
+async function removeStaleReport(path: string): Promise<string | null> {
+  try {
+    await rm(path, { force: true });
+    return null;
+  } catch (cause) {
+    if (typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === 'ENOENT') return null;
+    return `the previous ${GENERATED_TESTS_RAW_FILE} at ${path} could not be removed (${toError(cause, 'io').message}); its results would be read as this run's`;
+  }
+}
+
 /**
  * Run the generated behavior tests against an already served build. Never
  * throws and never fails: a run that could not start has `ran: false` and a
- * reason; a run whose tests fail has their failures in `tests`.
+ * reason; a run whose tests fail has their failures in `tests`. A raw report
+ * an earlier run left in `artifactDir` is removed first; when it cannot be,
+ * the run does not start.
  */
 export async function runGeneratedTests(input: GeneratedTestsInput): Promise<GeneratedTestsOutcome> {
   const outDir = resolve(input.outDir);
@@ -257,6 +270,9 @@ export async function runGeneratedTests(input: GeneratedTestsInput): Promise<Gen
 
   const rawReportPath = join(artifactDir, GENERATED_TESTS_RAW_FILE);
   const logPath = join(artifactDir, GENERATED_TESTS_LOG_FILE);
+  // Attempt numbers can be reused: a report left by an earlier run must never be read as this run's.
+  const stale = await removeStaleReport(rawReportPath);
+  if (stale !== null) return { ...base, reason: stale };
   const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
   const env: Record<string, string> = {
     PORT: String(input.port),

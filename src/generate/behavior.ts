@@ -21,6 +21,7 @@ import { indexState, isAncestorPath, type GenNode, type GenerationModel } from '
 import { pageKeyOf } from './site.js';
 import { emissionInState, transitionClasses, viewInState, type StateEmission } from './styles.js';
 import type { TokenIndex } from './tailwind-map.js';
+import { traceToBase, unreplayableStepReason } from './trace.js';
 
 /** A `useState` boolean in a section, page or component. */
 export interface StateVar {
@@ -136,7 +137,7 @@ export interface TransitionTest {
   readonly pageId: string;
   readonly route: string;
   readonly viewport: Viewport;
-  /** Steps that bring the page from its base state to the transition's from-state. */
+  /** Steps that bring the page from its base state to the transition's from-state (traced by `traceToBase`, so never a side effect or a navigation). */
   readonly setup: readonly TestStep[];
   readonly step: TestStep;
   readonly expectations: readonly Expectation[];
@@ -158,6 +159,8 @@ export interface BehaviorReport {
   readonly test: TransitionTest | null;
   /** True when the transition is never repeated (see `neverReplayed`): the generated suite skips it, as the verifier does. */
   readonly neverReplayed: boolean;
+  /** Requests the action sent when it was observed; the skip of a never-replayed transition names its side effect from them (see `sideEffectCause`). */
+  readonly network: Transition['network'];
 }
 
 /** Result of behavior planning. */
@@ -392,7 +395,17 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
     return created;
   };
   const report = (transition: Transition, status: BehaviorReport['status'], detail: string, file: string | null, test: TransitionTest | null = null): void => {
-    reports.push({ transitionId: transition.id, action: describeAction(transition), target: describeTarget(transition.action.target), status, detail, file, test, neverReplayed: neverReplayed(transition) });
+    reports.push({
+      transitionId: transition.id,
+      action: describeAction(transition),
+      target: describeTarget(transition.action.target),
+      status,
+      detail,
+      file,
+      test,
+      neverReplayed: neverReplayed(transition),
+      network: { requests: transition.network.requests, nonGet: transition.network.nonGet },
+    });
   };
   const addAttrCondition = (behavior: NodeBehavior, attr: string, condition: AttrCondition): void => {
     const list = behavior.attrConditions.get(attr) ?? [];
@@ -405,26 +418,6 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
     stateVars.set(file, vars);
   };
   const dedupeKey = (transition: Transition, viewport: Viewport): string => `${transition.from}|${transition.action.type}|${transition.action.key ?? ''}|${transition.action.value ?? ''}|${transition.action.target?.nodePath ?? ''}|${viewport.width}`;
-  const sortedTransitions = [...transitions].sort((a, b) => compareStrings(a.id, b.id));
-
-  /** Base state and the transitions that lead from it to `stateId` (empty for a base state); null when the chain cannot be traced. */
-  const traceToBase = (stateId: string): { base: UiState; chain: Transition[] } | null => {
-    const chain: Transition[] = [];
-    let state = model.statesById.get(stateId);
-    let guard = 0;
-    while (state !== undefined && state.kind !== 'base' && guard < 64) {
-      const parentId = state.parentStateId;
-      if (parentId === null) return null;
-      const current = state;
-      const via = sortedTransitions.find((t) => t.to === current.id && t.from === parentId);
-      if (via === undefined) return null;
-      chain.unshift(via);
-      state = model.statesById.get(parentId);
-      guard += 1;
-    }
-    if (state?.kind !== 'base') return null;
-    return { base: state, chain };
-  };
   const slotOf = (stateId: string): number => model.slots.findIndex((slot) => slot.state.id === stateId);
   const notRenderedReason = (path: string): string => {
     const hoisted = options.hoisted?.(path);
@@ -455,9 +448,18 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
       report(transition, 'not-implemented', `to-state ${transition.to} is missing`, null);
       continue;
     }
-    const traced = traceToBase(transition.from);
-    if (traced === null) {
-      report(transition, 'not-implemented', `from-state ${transition.from} is derived and the path from its base state could not be traced`, null);
+    // The same tracer as the verifier: a from-state reachable only through a side effect or a navigation is never
+    // re-entered, so the transition is neither reproduced from it nor tested (its setup would repeat the side effect).
+    const traced = traceToBase(transitions, model.statesById, fromState);
+    if (!traced.ok) {
+      report(
+        transition,
+        'not-implemented',
+        traced.blockedBy === null
+          ? `from-state ${transition.from} is derived and cannot be reached from its base state by replaying transitions (${traced.reason})`
+          : `from-state ${transition.from} is reachable only through ${traced.blockedBy.id}: ${unreplayableStepReason(traced.blockedBy)}; this transition is not reproduced from that state and not tested, because its test would have to repeat ${traced.blockedBy.id}`,
+        null,
+      );
       continue;
     }
     const slotIndex = slotOf(traced.base.id);
@@ -466,7 +468,7 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
       report(transition, 'not-implemented', `from-state ${transition.from} is not a rendered base state of this page`, null);
       continue;
     }
-    const setup = traced.chain.map((t) => stepOf(t, model.statesById.get(t.from)));
+    const setup = traced.steps.map((t) => stepOf(t, model.statesById.get(t.from)));
     const viewport = slot.state.viewport;
     const testOf = (expectations: Expectation[], revert: TransitionTest['revert'] = null): TransitionTest => ({
       transitionId: transition.id,
@@ -767,7 +769,7 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
       report(transition, 'not-implemented', 'key transitions are only reproduced as Escape reverts of an implemented click', null);
       continue;
     }
-    if (traced.chain.length > 0) {
+    if (traced.steps.length > 0) {
       report(transition, 'not-implemented', `from-state ${transition.from} is derived; ${action.type} transitions are only reproduced from a base state`, null);
       continue;
     }

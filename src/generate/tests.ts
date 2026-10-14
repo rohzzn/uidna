@@ -8,6 +8,8 @@
  */
 import type { BehaviorReport, Expectation, LocatorSpec, TestStep, TransitionTest } from './behavior.js';
 import { commentText, jsString } from './jsx.js';
+import { isLiteralRoute } from './site.js';
+import { sideEffectCause } from './trace.js';
 
 /** Default port of `vite preview` in the generated project. */
 export const BEHAVIOR_TEST_PORT = 4173;
@@ -64,10 +66,14 @@ function stepCode(step: TestStep, target: string): string[] {
   }
 }
 
+/** A literal URL path is asserted as is; a pattern matches its `:param` segments as any segment and `*` as anything (react-router's rules, see `isLiteralRoute`). */
 function urlMatcher(pattern: string): string {
-  if (!/[:*]/.test(pattern)) return jsString(pattern);
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/:[A-Za-z0-9_]+/g, '[^/]+').replace(/\*/g, '.*');
-  return `new RegExp(${jsString(`${escaped}$`)})`;
+  if (isLiteralRoute(pattern)) return jsString(pattern);
+  const source = pattern
+    .split('/')
+    .map((segment) => (segment.startsWith(':') ? '[^/]+' : segment.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')))
+    .join('/');
+  return `new RegExp(${jsString(`${source}$`)})`;
 }
 
 function expectationCode(expectation: Expectation): string {
@@ -159,7 +165,7 @@ export function renderBehaviorSpec(scanId: string, reports: readonly BehaviorRep
       // The suite runs outside UI DNA's request guard and BASE_URL can point anywhere: an action that caused a side effect when it was observed is never replayed, as in the verifier.
       skipped += 1;
       notReplayed.push(report.transitionId);
-      bodies.push([`  test.skip(${jsString(`${title}: not replayed`)}, async () => {`, '    // Reason: the action caused a side effect when it was observed (a non-GET request); UI DNA never repeats it.', '  });']);
+      bodies.push([`  test.skip(${jsString(`${title}: not replayed`)}, async () => {`, `    // Reason: the action caused a side effect when it was observed (${sideEffectCause(report)}); UI DNA never repeats it.`, '  });']);
       continue;
     }
     if (report.status !== 'implemented' || report.test === null) {

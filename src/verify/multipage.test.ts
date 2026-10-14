@@ -7,9 +7,12 @@
  * state loads at its crawled route, the navigation replays through the
  * generated link and reaches the Features route with the same role tree
  * change, the generated Playwright suite runs against the same static
- * server, and the HTML report groups the states per page.
+ * server, and the HTML report groups the states per page. A copy of the
+ * build whose manifest leaves a page out shows that only generated pages are
+ * compared (the navigation to the left-out page is skipped); without a
+ * manifest the routes fall back to the document, with a limitation.
  */
-import { readFile, rm, stat } from 'node:fs/promises';
+import { cp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Transition, UiDnaDocument, UiState } from '@rohzzn/uidna-schema';
@@ -22,13 +25,15 @@ import { FIXTURE_D_DIR } from '../browser/test-helpers.js';
 import { DEFAULT_THRESHOLDS, DiffReportSchema, type DiffReport } from '../contracts/diff-report.js';
 import { unwrap } from '../domain/result.js';
 import { isSideEffect } from '../domain/safe-policy.js';
-import { generateProject } from '../generate/index.js';
+import { generateProject, MANIFEST_FILE } from '../generate/index.js';
 import { GeneratedTestRunSchema } from './generated-tests.js';
 import { renderReport, verifyReconstruction } from './index.js';
 
 const REPO_ROOT = process.cwd();
 const SCANS = join(REPO_ROOT, 'tests', '.tmp', 'verify-multipage-scans');
 const PROJECT = join(REPO_ROOT, 'tests', '.tmp', 'verify-multipage-project');
+/** A copy of the built project with an edited (or no) manifest. */
+const PARTIAL = join(REPO_ROOT, 'tests', '.tmp', 'verify-multipage-partial');
 
 let fixture: StaticServer;
 let ctx: WorkflowContext;
@@ -263,5 +268,51 @@ describe('verifyReconstruction on Fixture D (three pages)', () => {
       for (const src of sources) expect(await exists(join(ctx.store.scanDir(scanId), ...src.split('/'))), src).toBe(true);
     },
     60_000,
+  );
+
+  it(
+    'compares only the pages the manifest lists: a page the generator left out is reported and never loaded at a borrowed route',
+    async () => {
+      // The same build, with a manifest that says pg_02 was not generated (router "none", or its pattern taken by another page).
+      await rm(PARTIAL, { recursive: true, force: true });
+      await cp(join(PROJECT, 'dist'), join(PARTIAL, 'dist'), { recursive: true });
+      const manifest = JSON.parse(await readFile(join(PROJECT, MANIFEST_FILE), 'utf8')) as { pages: { pageId: string }[] };
+      expect(manifest.pages.map((p) => p.pageId)).toEqual(['pg_01', 'pg_02', 'pg_03']);
+      await writeFile(join(PARTIAL, MANIFEST_FILE), JSON.stringify({ ...manifest, pages: manifest.pages.filter((p) => p.pageId !== 'pg_02') }), 'utf8');
+      const report = unwrap(
+        await verifyReconstruction({ ctx, scan, dna, outDir: PARTIAL, attempt: 3, previous: null, thresholds: DEFAULT_THRESHOLDS, build: false, label: 'pg_02 left out', evidenceId: 'ev_verify_multipage_3' }),
+        'attempt 3',
+      );
+      console.log('[verify multipage attempt 3]', summarize(report));
+      const baseIds = (pageId: string): string[] => dna.states.items.filter((s) => s.kind === 'base' && s.pageId === pageId).map((s) => s.id);
+      expect(report.visual.map((v) => v.stateId)).toEqual([...baseIds('pg_01'), ...baseIds('pg_03')]);
+      expect(report.limitations).toContain(`page pg_02 was not generated; not compared (${MANIFEST_FILE} does not list it; base state(s) ${baseIds('pg_02').join(', ')})`);
+      // The navigation to the left-out page is skipped, not replayed into the page the fallback route would render.
+      expect(report.behavioral.map((b) => [b.transitionId, b.replayed, b.reason])).toEqual([['tr_01', false, 'the action leads to page pg_02, which was not generated']]);
+      expect(report.limitations).toContain('transition tr_01: skipped, it navigates to page pg_02, which was not generated; not compared');
+      expect(report.limitations.join('\n')).not.toContain('derived from the document');
+      expect(report.summary).toMatchObject({ states: 2, transitions: 1, transitionsReplayed: 0 });
+      for (const visual of report.visual) expect(visual.pixels?.diffRatio ?? 1, `pixel diff in ${visual.stateId}`).toBeLessThan(0.05);
+    },
+    300_000,
+  );
+
+  it(
+    'falls back to the routes the document records when the generated project has no manifest, and says so',
+    async () => {
+      await rm(PARTIAL, { recursive: true, force: true });
+      await cp(join(PROJECT, 'dist'), join(PARTIAL, 'dist'), { recursive: true });
+      const report = unwrap(
+        await verifyReconstruction({ ctx, scan, dna, outDir: PARTIAL, attempt: 4, previous: null, thresholds: DEFAULT_THRESHOLDS, build: false, label: 'no manifest', evidenceId: 'ev_verify_multipage_4' }),
+        'attempt 4',
+      );
+      console.log('[verify multipage attempt 4]', summarize(report));
+      expect(report.limitations).toContain(
+        `${MANIFEST_FILE} of the generated project is missing; page routes were derived from the document, so a page the generator left out (router "none", or a route pattern another page took) may be compared at a route that renders another page`,
+      );
+      expect(report.visual).toHaveLength(3);
+      expect(report.behavioral.map((b) => [b.transitionId, b.replayed])).toEqual([['tr_01', true]]);
+    },
+    300_000,
   );
 });

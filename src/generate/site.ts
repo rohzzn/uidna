@@ -107,6 +107,16 @@ export function routeAlias(pattern: string): string | null {
   return match?.[1] !== undefined && match[1].length > 0 ? match[1] : null;
 }
 
+/**
+ * True when a route pattern is a literal path a browser can be sent to, by
+ * react-router's rules: it starts with `/`, no segment starts with `:` (a
+ * parameter) and no segment contains `*` (a splat). A colon inside a segment
+ * is literal (`/wiki/Help:Contents`).
+ */
+export function isLiteralRoute(pattern: string): boolean {
+  return pattern.startsWith('/') && pattern.split('/').every((segment) => !segment.startsWith(':') && !segment.includes('*'));
+}
+
 /** Route pattern derived from a page URL: its path (`/` when the URL cannot be parsed). */
 export function routeFromUrl(url: string): string {
   try {

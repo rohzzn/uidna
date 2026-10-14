@@ -5,8 +5,8 @@
  * tests, and writes the DiffReport and the static HTML report. Deterministic
  * and agent-free.
  */
-export { verifyReconstruction, generatedUrl, pathSelector, textSelector, traceToBase, navigationExclusion, submitExclusion, neverReplayed, MAX_REPLAY_CHAIN } from './verify.js';
-export type { VerifyInput } from './verify.js';
+export { verifyReconstruction, generatedUrl, pathSelector, textSelector, traceToBase, navigationExclusion, submitExclusion, neverReplayed, MAX_REPLAY_CHAIN, actedOn, tryLocators, repeatedByGeneratedTest } from './verify.js';
+export type { VerifyInput, LocatorAttempt } from './verify.js';
 export { renderReport } from './report.js';
 export type { RenderReportInput, RenderedReport } from './report.js';
 export { comparePixels, decodePng, encodePng, toPixelComparison } from './pixels.js';
@@ -20,7 +20,8 @@ export type { StyleCategory, StyleComparison, StyleDifference, StyleThresholds }
 export { findingKey, diffAttempts, allFindings, countFindings, findTokenId, findComponentId, severityRank, FindingCounter } from './findings.js';
 export type { AttemptDiff } from './findings.js';
 export { escapeHtml, escapeAttr, attr, safeCssColor, formatNumber, formatPercent } from './html.js';
-export { pageOf, pageRoute, isLiteralRoute, routeReached, pathnameOf, orderByPage } from './pages.js';
+export { pageOf, pageRoute, isLiteralRoute, routeReached, pathnameOf, orderByPage, generatedRoutesFromManifest, generatedRoutesFromDocument, pageNotGenerated } from './pages.js';
+export type { GeneratedRoutes } from './pages.js';
 export {
   runGeneratedTests,
   parsePlaywrightReport,

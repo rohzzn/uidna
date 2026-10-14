@@ -2,12 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
-import type { Box, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
+import type { Box, Transition, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
 import { buildFixtureACapture, findNode } from '../analysis/testing.js';
 import { createSampleContext, sampleDocument, SAMPLE_SCAN_ID } from '../application/testing.js';
 import type { CapturedState } from '../browser/types.js';
 import { DEFAULT_THRESHOLDS, DiffReportSchema, type DiffReport, type Finding } from '../contracts/diff-report.js';
 import { renderKindOf } from '../generate/model.js';
+import { multiPageFormDocument } from '../generate/testing.js';
+import { MAX_REPLAY_CHAIN as SHARED_MAX_REPLAY_CHAIN, traceToBase as sharedTraceToBase } from '../generate/trace.js';
 import { unwrap } from '../domain/result.js';
 import { diffAttempts, findComponentId, findingKey, findTokenId } from './findings.js';
 import { attr, escapeAttr, escapeHtml } from './html.js';
@@ -16,9 +18,22 @@ import { comparePixels } from './pixels.js';
 import { renderReport } from './report.js';
 import { compareDeltas, diffRoleTrees } from './roles.js';
 import { compareStyles } from './styles.js';
-import { errorExcerpt, parsePlaywrightReport, transitionIdOfTitle } from './generated-tests.js';
-import { isLiteralRoute, orderByPage, pageOf, pageRoute, pathnameOf, routeReached } from './pages.js';
-import { generatedUrl, MAX_REPLAY_CHAIN, navigationExclusion, neverReplayed, pathSelector, submitExclusion, textSelector, traceToBase } from './verify.js';
+import { errorExcerpt, parsePlaywrightReport, transitionIdOfTitle, type GeneratedTestResult } from './generated-tests.js';
+import { generatedRoutesFromDocument, generatedRoutesFromManifest, isLiteralRoute, orderByPage, pageNotGenerated, pageOf, pageRoute, pathnameOf, routeReached } from './pages.js';
+import {
+  actedOn,
+  generatedUrl,
+  MAX_REPLAY_CHAIN,
+  navigationExclusion,
+  neverReplayed,
+  pathSelector,
+  repeatedByGeneratedTest,
+  submitExclusion,
+  textSelector,
+  traceToBase,
+  tryLocators,
+  type LocatorAttempt,
+} from './verify.js';
 
 /* ---------------------------------------------------------------- images */
 
@@ -470,6 +485,56 @@ describe('pages and routes', () => {
     expect(pathnameOf('nope')).toBe('/');
   });
 
+  it('treats a pattern as literal by react-router rules: a colon inside a segment is literal, a leading colon or a star is not', () => {
+    expect(isLiteralRoute('/wiki/Help:Contents')).toBe(true);
+    expect(isLiteralRoute('/a:b/c')).toBe(true);
+    expect(isLiteralRoute('/wiki/:page')).toBe(false);
+    expect(isLiteralRoute('/wiki/Help:Contents/:id')).toBe(false);
+    expect(isLiteralRoute('/files/a*b')).toBe(false);
+    expect(isLiteralRoute('*')).toBe(false);
+    expect(routeReached('/wiki/Help:Contents', '/wiki/Help:Contents')).toBe(true);
+    expect(generatedUrl('http://127.0.0.1:5000/', 'http://example.com/wiki/Help:Contents', '/wiki/Help:Contents')).toBe('http://127.0.0.1:5000/wiki/Help:Contents');
+  });
+
+  it('reads the generated pages and routes from the manifest, and derives them from the document only as a fallback', () => {
+    const manifest = {
+      scanId: 'scan_x',
+      router: 'react-router',
+      pages: [
+        { pageId: 'pg_01', name: 'Home', file: 'src/pages/Home.tsx', route: '/' },
+        { pageId: 'pg_03', name: 'Pricing', file: 'src/pages/Pricing.tsx', route: '/pricing.html' },
+      ],
+      files: [],
+    };
+    const routes = unwrap(generatedRoutesFromManifest(manifest));
+    expect(routes.source).toBe('manifest');
+    expect(routes.router).toBe('react-router');
+    expect([...routes.routeByPageId]).toEqual([
+      ['pg_01', '/'],
+      ['pg_03', '/pricing.html'],
+    ]);
+    // A page the generator left out (here pg_02: its pattern was taken, or router "none") is not generated.
+    expect(pageNotGenerated(routes, 'pg_02')).toBe(true);
+    expect(pageNotGenerated(routes, 'pg_03')).toBe(false);
+    const single = unwrap(generatedRoutesFromManifest({ router: 'none', pages: [{ pageId: 'pg_01', route: '/' }] }));
+    expect(single.router).toBe('none');
+    expect(pageNotGenerated(single, 'pg_02')).toBe(true);
+    // A manifest written before pages were recorded, or not a manifest at all, is refused with a tagged error.
+    for (const bad of [{ files: ['README.md'] }, { router: 'none', pages: [] }, null, 'text']) {
+      const refused = generatedRoutesFromManifest(bad);
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) {
+        expect(refused.error._tag).toBe('validation');
+        expect(refused.error.message).toContain('uidna.generated.json lists no generated pages');
+      }
+    }
+    // The fallback derives a route for every page of the document and never reports a page as not generated.
+    const doc = sampleDocument();
+    const fallback = generatedRoutesFromDocument(doc);
+    expect(fallback).toEqual({ source: 'document', router: null, routeByPageId: new Map([['pg_01', '/']]) });
+    expect(pageNotGenerated(fallback, 'pg_99')).toBe(false);
+  });
+
   it('orders base states by page (document order), widest first, unlisted pages last', () => {
     const doc = sampleDocument();
     const [st1, st2] = doc.states.items;
@@ -516,6 +581,93 @@ describe('traceToBase', () => {
     const tooLong = traceToBase(long, chain, last);
     expect(tooLong.ok).toBe(false);
     if (!tooLong.ok) expect(tooLong.reason).toContain(`longer than ${MAX_REPLAY_CHAIN} steps`);
+  });
+
+  it('is the tracer the generated behavior tests use, so neither repeats a producer the other refuses', () => {
+    expect(traceToBase).toBe(sharedTraceToBase);
+    expect(MAX_REPLAY_CHAIN).toBe(SHARED_MAX_REPLAY_CHAIN);
+  });
+});
+
+/* ---------------------------------------------------- generated test runs */
+
+describe('repeatedByGeneratedTest', () => {
+  const doc = multiPageFormDocument();
+  const statesById = new Map(doc.states.items.map((s) => [s.id, s] as const));
+  const result = (transitionId: string | null, status: GeneratedTestResult['status'] = 'passed'): Pick<GeneratedTestResult, 'title' | 'transitionId' | 'status'> => ({ title: `${transitionId ?? 'no id'}: test`, transitionId, status });
+
+  it('reports a test that ran a transition the verifier never replays', () => {
+    expect(repeatedByGeneratedTest(doc.states.transitions, statesById, result('tr_05'))).toBe(
+      'generated test "tr_05: test" exercised tr_05, which caused side effects when it was observed (1 non-GET request(s)); the verifier never replays it, and the generated suite runs outside UI DNA\'s network guard',
+    );
+    expect(repeatedByGeneratedTest(doc.states.transitions, statesById, result('tr_05', 'skipped'))).toBeNull();
+    expect(repeatedByGeneratedTest(doc.states.transitions, statesById, result('tr_04'))).toBeNull();
+    expect(repeatedByGeneratedTest(doc.states.transitions, statesById, result(null))).toBeNull();
+    expect(repeatedByGeneratedTest(doc.states.transitions, statesById, result('tr_99'))).toBeNull();
+  });
+
+  it('reports a test whose setup has to repeat the side effect that alone reaches its from-state', () => {
+    // The empty submit sent a blocked POST and the fills start from the state it produced: a test of a fill repeats the submit.
+    const transitions = doc.states.transitions.map((t) => (t.id === 'tr_02' ? { ...t, sideEffects: true, network: { requests: 1, nonGet: 1 } } : t.id === 'tr_03' ? { ...t, from: 'st_05' } : t));
+    const states = new Map(statesById);
+    const st06 = statesById.get('st_06');
+    if (st06 === undefined) throw new Error('st_06 missing');
+    states.set('st_06', { ...st06, parentStateId: 'st_05' });
+    for (const [id, from] of [
+      ['tr_03', 'st_05'],
+      ['tr_04', 'st_06'],
+    ] as const) {
+      expect(repeatedByGeneratedTest(transitions, states, result(id, 'failed'))).toBe(
+        `generated test "${id}: test" exercised tr_02 to reach the from-state ${from} of ${id}, which caused side effects when it was observed (a non-GET request); the verifier never replays it on the way to a state, and the generated suite runs outside UI DNA's network guard`,
+      );
+    }
+    expect(repeatedByGeneratedTest(transitions, states, result('tr_03', 'skipped'))).toBeNull();
+    // A navigation that alone reaches a derived from-state is never replayed on the way either.
+    const navigated = doc.states.transitions.map((t) => (t.id === 'tr_06' ? { ...t, navigation: { toPageId: 'pg_02', url: 'http://127.0.0.1:4173/features.html' } } : t));
+    const tr06 = navigated.find((t) => t.id === 'tr_06');
+    if (tr06 === undefined) throw new Error('tr_06 missing');
+    const fromSt09: Transition = { ...tr06, id: 'tr_07', from: 'st_09', to: 'st_01', navigation: null };
+    expect(repeatedByGeneratedTest([...navigated, fromSt09], statesById, result('tr_07'))).toBe(
+      'generated test "tr_07: test" exercised tr_06 to reach the from-state st_09 of tr_07, which is a navigation to page pg_02; the verifier never replays it on the way to a state, and the generated suite runs outside UI DNA\'s network guard',
+    );
+  });
+});
+
+/* --------------------------------------------------------------- locators */
+
+describe('tryLocators and actedOn', () => {
+  const attempt = (performed: boolean, blockedRequests: readonly string[] = [], reason: string | null = null): LocatorAttempt => ({ performed, reason, blockedRequests });
+  const locators = [{ label: 'role button "Create account" #0' }, { label: 'selector [data-uidna-path="1/0/2/2/0"]' }, { label: 'selector button:text-is("Create account")' }];
+
+  it('counts a request the session blocked as acting on the target', () => {
+    expect(actedOn(attempt(true))).toBe(true);
+    expect(actedOn(attempt(false, ['http://127.0.0.1:4173/signup']))).toBe(true);
+    expect(actedOn(attempt(false))).toBe(false);
+  });
+
+  it('stops at the first locator whose action the session blocked as a request, so the form is never submitted twice', async () => {
+    const tried: string[] = [];
+    const outcomes = [attempt(false, [], 'no element'), attempt(false, ['http://127.0.0.1:4173/signup'], 'The action would have navigated to http://127.0.0.1:4173/signup; the navigation was blocked'), attempt(true)];
+    const result = await tryLocators(locators, (located) => {
+      tried.push(located.label);
+      return Promise.resolve(outcomes[tried.length - 1] ?? attempt(false));
+    });
+    expect(tried).toEqual([locators[0]?.label, locators[1]?.label]);
+    expect(result.attempt?.blockedRequests).toEqual(['http://127.0.0.1:4173/signup']);
+    expect(result.reasons).toEqual(['role button "Create account" #0: no element']);
+  });
+
+  it('returns the first performed attempt, or every reason when no locator acted', async () => {
+    let calls = 0;
+    const first = await tryLocators(locators, () => {
+      calls += 1;
+      return Promise.resolve(attempt(true));
+    });
+    expect(calls).toBe(1);
+    expect(first.attempt?.performed).toBe(true);
+    const none = await tryLocators(locators, (located) => Promise.resolve(attempt(false, [], located.label === locators[0]?.label ? 'hidden' : null)));
+    expect(none.attempt).toBeNull();
+    expect(none.reasons).toEqual(['role button "Create account" #0: hidden', 'selector [data-uidna-path="1/0/2/2/0"]: not performed', 'selector button:text-is("Create account"): not performed']);
   });
 });
 
