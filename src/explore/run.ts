@@ -6,6 +6,7 @@
  * base states, storing derived states and the records that describe what
  * was attempted or skipped. Internal to `src/explore`.
  */
+import { detectCollections } from '../domain/collections.js';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action, ActionTarget, Transition, UiNode } from '@rohzzn/uidna-schema';
@@ -104,6 +105,8 @@ export interface Run {
   readonly policy: ExplorePolicy;
   readonly denyNames: readonly string[];
   readonly formValues: Readonly<Record<string, string>>;
+  /** Whether search controls of detected collections are typed into. */
+  readonly collections: boolean;
   /** Page id by page key of every crawled page. */
   readonly pagesByKey: ReadonlyMap<string, string>;
   readonly tmpDir: string;
@@ -294,12 +297,46 @@ export function effectKey(pageId: string, nodePath: string): string {
 /** True when the node caused a side effect or a navigation in this run or an earlier one. */
 export function hasSideEffect(run: Run, ref: Reference, node: UiNode): boolean {
   const key = effectKey(ref.pageId, node.path);
-  return run.sideEffectKeys.has(key) || run.knownSideEffectKeys.has(key) || run.knownSideEffectKeys.has(node.path);
+  if (run.sideEffectKeys.has(key) || run.knownSideEffectKeys.has(key) || run.knownSideEffectKeys.has(node.path)) return true;
+  // The same control in another repeated item (the "Archive" button of the next row) is the same action.
+  const item = itemControlKey(ref.capture, node.path);
+  if (item === null) return false;
+  const itemKey = effectKey(ref.pageId, item);
+  return run.sideEffectKeys.has(itemKey) || run.knownSideEffectKeys.has(itemKey);
 }
 
-/** Remember that the node's action caused a side effect or a navigation. */
+/** Remember that the node's action caused a side effect or a navigation (for its repeated-item equivalents too). */
 export function markSideEffect(run: Run, ref: Reference, node: UiNode): void {
   run.sideEffectKeys.add(effectKey(ref.pageId, node.path));
+  const item = itemControlKey(ref.capture, node.path);
+  if (item !== null) run.sideEffectKeys.add(effectKey(ref.pageId, item));
+}
+
+const ITEM_KEYS = new WeakMap<CapturedState, ReadonlyMap<string, string>>();
+
+/**
+ * Equivalence key of a node inside a repeated item of a detected collection:
+ * `item:<container path>:<path relative to the item>`, shared by the same
+ * control in every item; null outside collections.
+ */
+export function itemControlKey(capture: CapturedState, path: string): string | null {
+  let keys = ITEM_KEYS.get(capture);
+  if (keys === undefined) {
+    const map = new Map<string, string>();
+    for (const collection of detectCollections(capture.nodes)) {
+      for (const item of collection.items) {
+        const prefix = `${item.path}/`;
+        for (const node of capture.nodes) {
+          if (node.path !== item.path && !node.path.startsWith(prefix)) continue;
+          const rel = node.path === item.path ? '' : node.path.slice(prefix.length);
+          map.set(node.path, `item:${collection.container.path}:${rel}`);
+        }
+      }
+    }
+    keys = map;
+    ITEM_KEYS.set(capture, keys);
+  }
+  return keys.get(path) ?? null;
 }
 
 /** Key under which a page-level key press (no target node) is remembered: page-scoped like a node's, never a node path. */

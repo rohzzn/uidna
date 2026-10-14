@@ -73,6 +73,7 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 | `pages` | array of string | no | Subset of page ids to explore. Default all. |
 | `denyNames` | array of string | no | Additional accessible-name words that must never be clicked. |
 | `formValues` | object | no | Synthetic values per control name or id for the forms policy. Never real credentials. |
+| `collections` | boolean | no | Type into the search controls of detected collections (tables, lists, card grids) outside forms: a query taken from the text of the items, then one that matches nothing, then clear. Never submits and never presses Enter; every non-GET request is blocked. Default true. |
 | `outRoot` | string | no |  |
 
 **Result fields**

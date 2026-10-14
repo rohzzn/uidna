@@ -81,7 +81,8 @@ describe('side effects across explore runs', () => {
     expect(first.ok, first.ok ? '' : first.error.message).toBe(true);
     if (!first.ok) return;
     const postsAfterFirst = posts;
-    expect(postsAfterFirst).toBe(1);
+    // Blocked by the run-wide non-GET guard: attempted and remembered, never received.
+    expect(postsAfterFirst).toBe(0);
     expect(otherPageHits).toBe(0);
     const firstTransitions = first.value.result.transitions;
     const saveTransition = firstTransitions.find((t) => t.action.target?.name === 'Save draft');

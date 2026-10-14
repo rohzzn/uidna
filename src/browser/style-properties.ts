@@ -266,6 +266,16 @@ export const CAPTURED_ATTRIBUTES = [
   'multiple',
   'novalidate',
   'inputmode',
+  // table semantics
+  'scope',
+  'colspan',
+  'rowspan',
+  // item identity of repeated items (collections)
+  'data-id',
+  'data-key',
+  'data-item-id',
+  'data-row-key',
+  'data-testid',
 ] as const;
 
 /** Attribute name prefixes kept on captured nodes. */

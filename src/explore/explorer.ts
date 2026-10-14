@@ -30,12 +30,14 @@ import {
   DEFAULT_DENY_NAMES,
   isDisclosureTrigger,
   isSideEffect,
+  matchDenyName,
   pageLevelActions,
   type FormPlan,
   type InteractionCandidate,
   type PageLevelAction,
   type SkippedInteraction,
 } from '../domain/safe-policy.js';
+import { chooseNoMatchQuery, chooseSearchQuery, CollectionIndex, detectCollections, detectFields, findSearchControls } from '../domain/collections.js';
 import { runFormSequence } from './forms.js';
 import { performNavigation } from './navigation.js';
 import {
@@ -107,6 +109,8 @@ export interface ExploreInput {
   readonly policy?: ExplorePolicy;
   /** Synthetic values by control name or id for the forms policy; they win over the built-in ones. Never real credentials. */
   readonly formValues?: Readonly<Record<string, string>>;
+  /** Type into search controls of detected collections (query from the items' text, then a no-match query, then clear). Default true. */
+  readonly collections?: boolean;
   /** Transitions recorded by an earlier run of this scan; ids continue after them and they are returned together with the new ones. */
   readonly previousTransitions?: readonly Transition[];
   /**
@@ -159,16 +163,55 @@ function planForm(plan: FormPlan, capture: CapturedState): FormSequence {
 }
 
 /** What the planners need from a run. */
-type Planner = Pick<Run, 'policy' | 'denyNames' | 'formValues' | 'pagesByKey' | 'scan'>;
+type Planner = Pick<Run, 'policy' | 'denyNames' | 'formValues' | 'pagesByKey' | 'scan'> & { readonly collections: boolean };
+
+/**
+ * Search chains: for every search control bound to a detected collection, type
+ * a query taken from the items' own text, then a query that matches nothing,
+ * then clear the field. Performed like a form chain (non-GET guard held,
+ * reverted with a fresh load), never submitted and never with Enter.
+ */
+function planSearches(capture: CapturedState, denyNames: readonly string[]): { sequences: FormSequence[]; skipped: SkippedInteraction[] } {
+  const collections = detectCollections(capture.nodes);
+  const sequences: FormSequence[] = [];
+  const skipped: SkippedInteraction[] = [];
+  if (collections.length === 0) return { sequences, skipped };
+  const index = new CollectionIndex(capture.nodes);
+  const noMatch = chooseNoMatchQuery(capture.nodes.map((n) => n.text ?? ''));
+  for (const { control, collection } of findSearchControls(capture.nodes, collections)) {
+    if (matchDenyName(control.name, denyNames) !== null) {
+      skipped.push({ node: control, kind: 'fill', reason: 'fill: denied name' });
+      continue;
+    }
+    const { fields, values } = detectFields(index, collection);
+    const chosen = chooseSearchQuery(collection.items.map((item) => values.get(item) ?? {}), fields);
+    if (chosen === null) {
+      skipped.push({ node: control, kind: 'fill', reason: 'fill: no text of the items selects a strict, non-empty subset to search for' });
+      continue;
+    }
+    const what = describeNode(control);
+    sequences.push({
+      form: control,
+      capture,
+      steps: [
+        { kind: 'fill', node: control, value: chosen.query, describe: `fill ${what} with "${chosen.query}" (search query from the items' text)` },
+        { kind: 'fill', node: control, value: noMatch, describe: `fill ${what} with "${noMatch}" (matches nothing)` },
+        { kind: 'fill', node: control, value: '', describe: `clear ${what}` },
+      ],
+    });
+  }
+  return { sequences, skipped };
+}
 
 /** Plan every step of a base state from its capture (the stored one when scheduling, the fresh one when exploring). */
 function plansFor(run: Planner, capture: CapturedState, base: StateRecord): Plans {
   const pageId = base.pageId ?? run.scan.pageId;
   const classified = classifyInteractions(capture, { denyNames: run.denyNames, navigation: { pageUrl: base.url, pageId, pagesByKey: run.pagesByKey, keyOf: pageKey } });
   const planned = [...classified.candidates.map(planCandidate), ...pageLevelActions().map(planPageLevel)];
-  if (run.policy !== 'forms') return { planned, forms: [], skipped: classified.skipped };
+  const searches = run.collections ? planSearches(capture, run.denyNames) : { sequences: [], skipped: [] };
+  if (run.policy !== 'forms') return { planned, forms: searches.sequences, skipped: [...classified.skipped, ...searches.skipped] };
   const forms = classifyForms(capture, { denyNames: run.denyNames, formValues: run.formValues });
-  return { planned, forms: forms.forms.map((plan) => planForm(plan, capture)), skipped: [...classified.skipped, ...forms.skipped] };
+  return { planned, forms: [...searches.sequences, ...forms.forms.map((plan) => planForm(plan, capture))], skipped: [...classified.skipped, ...searches.skipped, ...forms.skipped] };
 }
 
 /** Steps of one round. */
@@ -525,7 +568,7 @@ export async function exploreInteractions(input: ExploreInput): Promise<Result<E
   const denyNames = [...DEFAULT_DENY_NAMES, ...(input.denyNames ?? [])];
   const pagesByKey = new Map<string, string>();
   for (const page of scan.pages ?? [{ pageId: scan.pageId, url: scan.target.url }]) pagesByKey.set(pageKey(page.url), page.pageId);
-  const planner: Planner = { policy, denyNames, formValues: input.formValues ?? {}, pagesByKey, scan };
+  const planner: Planner = { policy, denyNames, formValues: input.formValues ?? {}, pagesByKey, scan, collections: input.collections ?? true };
 
   // Progress total from the stored captures; adjusted when a fresh capture yields other steps.
   let total = 0;
@@ -549,6 +592,7 @@ export async function exploreInteractions(input: ExploreInput): Promise<Result<E
     policy,
     denyNames,
     formValues: planner.formValues,
+    collections: planner.collections,
     pagesByKey,
     tmpDir: paths.value.tmpDir,
     assetDir: paths.value.assetDir,
@@ -570,6 +614,9 @@ export async function exploreInteractions(input: ExploreInput): Promise<Result<E
     aborted: null,
   };
 
+  // Every non-GET request is blocked for the whole run: an action that sends one is a side effect that never reaches its server.
+  const runGuard = await session.holdNonGetGuard();
+  if (!runGuard.ok) run.limitations.push(`the request guard could not be held for the run (${describeError(runGuard.error)}); non-GET requests outside form chains could reach their server once before being remembered`);
   try {
     try {
       await mkdir(run.tmpDir, { recursive: true });
@@ -578,6 +625,7 @@ export async function exploreInteractions(input: ExploreInput): Promise<Result<E
     }
     await exploreBases(run, bases, input.captures);
   } finally {
+    if (runGuard.ok) await runGuard.value.release();
     await session.close();
     const removed = await ctx.store.remove(scan.scanId, 'tmp');
     if (!removed.ok) run.limitations.push(`cleanup_incomplete: ${run.tmpDir} could not be removed (${describeError(removed.error)})`);

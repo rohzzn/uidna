@@ -133,7 +133,8 @@ describe('safe policy: side effects are attributed to their action and never rep
     expect(attempts[0]?.reason).toContain('new page');
     expect(attempts[0]?.reason).toContain('1 non-GET request(s)');
     expect(skippedOn(second, report)).toContain('click: side effect observed earlier');
-    expect(posts.get('/api/report')).toBe(1);
+    // Exploration holds the non-GET guard for the whole run: the request was attempted, blocked, and never reached the server.
+    expect(posts.get('/api/report')).toBeUndefined();
   });
 
   it('attributes the POST of an Escape revert to the disclosure trigger it reverted', () => {
@@ -145,7 +146,8 @@ describe('safe policy: side effects are attributed to their action and never rep
     expect(back?.sideEffects).toBe(true);
     expect(attemptsOn(second, menu)).toEqual([]);
     expect(skippedOn(second, menu)).toContain('click: side effect observed earlier');
-    expect(posts.get('/api/menu-closed')).toBe(1);
+    // Exploration holds the non-GET guard for the whole run: the request was attempted, blocked, and never reached the server.
+    expect(posts.get('/api/menu-closed')).toBeUndefined();
   });
 
   it('attributes the POST of a blur revert to the focus it reverted', () => {
@@ -154,7 +156,8 @@ describe('safe policy: side effects are attributed to their action and never rep
     expect(outcome.record.limitations.some((l) => l.startsWith('reverting focus on textbox "Note" with a blur caused 1 non-GET request(s)'))).toBe(true);
     expect(attemptsOn(second, note).filter((a) => a.action.type === 'focus')).toEqual([]);
     expect(skippedOn(second, note)).toContain('focus: side effect observed earlier');
-    expect(posts.get('/api/note')).toBe(1);
+    // Exploration holds the non-GET guard for the whole run: the request was attempted, blocked, and never reached the server.
+    expect(posts.get('/api/note')).toBeUndefined();
   });
 
   it('remembers the page-level Tab key that POSTed, and never presses it again on that page', () => {
@@ -165,7 +168,8 @@ describe('safe policy: side effects are attributed to their action and never rep
     expect(outcome.record.attempted.filter((a) => a.action.type === 'key' && a.action.key === 'Escape').map((a) => a.stateId)).toEqual([first, second]);
     expect(outcome.record.sideEffectKeys).toContain(keyPressEffectKey(scan.pageId, 'Tab'));
     expect(outcome.record.sideEffectKeys).not.toContain(keyPressEffectKey(scan.pageId, 'Escape'));
-    expect(posts.get('/api/tab')).toBe(1);
+    // Exploration holds the non-GET guard for the whole run: the request was attempted, blocked, and never reached the server.
+    expect(posts.get('/api/tab')).toBeUndefined();
   });
 
   it('records a link that POSTs on its way to a crawled page without a base state at the width as a side effect', () => {

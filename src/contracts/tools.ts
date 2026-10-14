@@ -212,6 +212,7 @@ export const exploreInteractions = defineTool({
     pages: z.array(z.string()).optional().describe('Subset of page ids to explore. Default all.'),
     denyNames: z.array(z.string()).optional().describe('Additional accessible-name words that must never be clicked.'),
     formValues: z.record(z.string(), z.string()).optional().describe('Synthetic values per control name or id for the forms policy. Never real credentials.'),
+    collections: z.boolean().optional().describe('Type into the search controls of detected collections (tables, lists, card grids) outside forms: a query taken from the text of the items, then one that matches nothing, then clear. Never submits and never presses Enter; every non-GET request is blocked. Default true.'),
     outRoot: z.string().optional(),
   }),
   output: z.strictObject({

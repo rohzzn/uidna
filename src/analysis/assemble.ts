@@ -38,6 +38,7 @@ import { formatIssues, LimitationSchema, measured, UI_DNA_VERSION, unknown, vali
 import type { CapturedAsset, CapturedState } from '../browser/types.js';
 import type { ExploreRecord, ResponsiveRecord, ScanRecord, StateRecord } from '../application/records.js';
 import { assembleResponsive } from './responsive.js';
+import { buildCollections } from './collections.js';
 import { isoNow, systemClock, type Clock } from '../domain/clock.js';
 import { stableStringify } from '../domain/digest.js';
 import { uidnaError } from '../domain/errors.js';
@@ -840,6 +841,13 @@ export function assembleDna(input: AssembleInput): Result<UiDnaDocument> {
   const components = withPageIds(findComponents(baseCaptures.size > 0 ? baseCaptures : orderedCaptures, { minInstances: 2, capturedAt, evidenceIdByState: evidence }), pages);
   const layoutConstraints = computeLayout(baseCaptures.size > 0 ? baseCaptures : orderedCaptures, { evidenceIdByState: evidence });
   const behavior = carryInferredBehavior(deriveBehavior(states, transitions), previous, new Set(transitions.map((t) => t.id)));
+  const statesById = new Map(states.map((s) => [s.id, s] as const));
+  const collections = buildCollections({
+    pages: pages.map((page) => ({ id: page.id, bases: page.states.filter((s) => s.record.kind === 'base').map((s) => statesById.get(s.record.stateId)).filter((s): s is UiState => s !== undefined) })),
+    states: statesById,
+    transitions,
+    capturedAt,
+  });
   const responsive =
     input.responsive === undefined || input.responsive === null
       ? null
@@ -899,6 +907,7 @@ export function assembleDna(input: AssembleInput): Result<UiDnaDocument> {
       ...(responsive === null ? {} : { responsive: responsive.responsive }),
     },
     behavior,
+    ...(collections === null ? {} : { collections }),
     assets,
     limitations: dedupeLimitations([...limitations, ...(responsive?.limitations ?? []), ...captureLimitations(ordered, pageByState, evidence), ...assetLimitations(assets), ...agentLimitations(previous)]),
     evidence: buildEvidence(ordered),

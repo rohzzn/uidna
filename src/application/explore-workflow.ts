@@ -92,6 +92,7 @@ export async function exploreInteractions(
     ...(input.viewports === undefined ? {} : { viewportWidths: input.viewports }),
     ...(input.pages === undefined ? {} : { pageIds: input.pages }),
     ...(input.formValues === undefined ? {} : { formValues: input.formValues }),
+    ...(input.collections === undefined ? {} : { collections: input.collections }),
     policy: input.policy ?? 'safe',
     previousTransitions,
     knownSideEffectPaths,
