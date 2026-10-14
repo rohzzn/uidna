@@ -12,6 +12,7 @@
  * comparison that could not be made is reported as a limitation or an
  * unknown, never silently skipped.
  */
+import { compareItemKeys, generatedItemKeys } from './collections.js';
 import { compareBreakpointSides } from './responsive.js';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, resolve, sep } from 'node:path';
@@ -1262,6 +1263,33 @@ async function replayTransition(run: Run, transition: Transition): Promise<Behav
     }
   }
 
+  // A collection rule: the generated items must be the same, in the same order (a role tree cannot see a sort).
+  let collection: BehaviorComparison['collection'];
+  const rule = (dna.collections?.rules ?? []).find((r) => r.transitionId === transition.id);
+  const definition = rule === undefined ? undefined : dna.collections?.definitions.find((d) => d.id === rule.collectionId);
+  if (rule !== undefined && definition !== undefined) {
+    const generated = generatedItemKeys(after.value.nodes, definition.container.nodePath);
+    const label = (key: string): string => {
+      const item = definition.items.find((i) => i.key === key);
+      const first = definition.fields[0];
+      return item === undefined || first === undefined ? key : (item.values[first.id] ?? key);
+    };
+    const list = (keys: readonly string[]): string => listEntries(keys.map(label));
+    const draft = { category: 'behavior' as const, stateId: fromState.id, viewport: fromState.viewport, node: fromState.nodes.find((n) => n.path === definition.container.nodePath) ?? null, transitionId: transition.id, delta: null, evidence };
+    if (generated === null) {
+      findings.push(makeFinding(run, { ...draft, severity: 'high', property: 'collection:container', original: list(rule.after.keys), generated: null, message: `after ${transition.id} the generated app shows no element with data-uidna-path="${definition.container.nodePath}" for collection ${definition.id}` }));
+      collection = { ruleId: rule.id, kind: rule.kind, expected: [...rule.after.keys], generated: null, match: false };
+    } else {
+      const compared = compareItemKeys(rule.after.keys, generated);
+      if (!compared.membership) {
+        findings.push(makeFinding(run, { ...draft, severity: 'high', property: 'collection:membership', original: list(rule.after.keys), generated: list(generated), message: `after ${transition.id} (${rule.kind}) the original showed ${rule.after.keys.length} item(s) of ${definition.id}, the generated app ${generated.length}${compared.missing.length > 0 ? `; missing ${list(compared.missing)}` : ''}${compared.extra.length > 0 ? `; extra ${list(compared.extra)}` : ''}` }));
+      } else if (!compared.order) {
+        findings.push(makeFinding(run, { ...draft, severity: rule.kind === 'sort' ? 'high' : 'medium', property: 'collection:order', original: list(rule.after.keys), generated: list(generated), message: `after ${transition.id} (${rule.kind}) the generated app shows the same items of ${definition.id} in another order` }));
+      }
+      collection = { ruleId: rule.id, kind: rule.kind, expected: [...rule.after.keys], generated, match: compared.order };
+    }
+  }
+
   let pixels: BehaviorComparison['pixels'] = null;
   if (toState.screenshot !== null && after.value.screenshot !== null) {
     const pixelLimitations: string[] = [];
@@ -1277,10 +1305,11 @@ async function replayTransition(run: Run, transition: Transition): Promise<Behav
     locator: reportedLocator,
     replayed: true,
     reason: null,
-    roleTreeMatch: deltas.match && stateMatch && navigationMatch && attempt.blockedRequests.length === 0,
+    roleTreeMatch: deltas.match && stateMatch && navigationMatch && attempt.blockedRequests.length === 0 && (collection?.match ?? true),
     roleTreeDiff: { missing: [...deltas.missing], extra: [...deltas.extra] },
     pixels,
     generatedScreenshot: afterRelative,
+    ...(collection === undefined ? {} : { collection }),
     findings,
   };
 }

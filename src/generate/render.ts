@@ -8,6 +8,7 @@
  * by props. Every element carries `data-uidna-path` so verification can match
  * it to the scanned node.
  */
+import type { CollectionPlan, CollectionPlanning } from './collections.js';
 import type { UiNode } from '@rohzzn/uidna-schema';
 import type { AssetRegistry, AssetResolution } from './assets.js';
 import { BOOLEAN_ATTRIBUTES, keptAttributes } from './attrs.js';
@@ -39,6 +40,8 @@ export interface RenderContext {
   readonly scanId: string;
   /** Route pattern a page link resolves to; absent or null keeps `<a href>`. */
   readonly routeOf?: (node: UiNode) => string | null;
+  /** Collections rendered from data with search, filter and sort state (see `planCollections`). */
+  readonly collections?: CollectionPlanning;
 }
 
 /** A rendered source file. */
@@ -125,6 +128,8 @@ interface ScopeState {
   readonly imports: Set<string>;
   /** Names imported from react-router-dom. */
   readonly router: Set<string>;
+  /** Rendered item rows of the collections in this file, by plan suffix, in base order. */
+  readonly rows?: Map<string, { readonly key: string; readonly jsx: JsxChild }[]>;
 }
 
 /** Order classes: base (incl. before:/after:), then hover/focus variants, then breakpoints in ascending width. */
@@ -333,6 +338,9 @@ function renderNode(gn: GenNode, ctx: RenderContext, scope: ScopeState): JsxChil
   let staticClasses = (variantNode ? variantNode.common : classes.classes).filter((cls) => !removed.has(cls));
   if (variantNode) dynamics.unshift(`VARIANT_CLASSES[variant].${variantNode.key}`);
   if (behavior) staticClasses = [...staticClasses, ...behavior.extraClasses];
+  const collectionControl = ctx.collections?.controls.get(gn.path);
+  if (collectionControl !== undefined && collectionControl.removeClasses.length > 0) staticClasses = staticClasses.filter((cls) => !collectionControl.removeClasses.includes(cls));
+  if (collectionControl?.addClasses !== undefined) staticClasses = [...staticClasses, ...collectionControl.addClasses];
   if (placeholder) {
     // Keep the measured visibility: `hidden` stays (at any breakpoint); other display values become the placeholder's `flex`.
     const mapped = staticClasses.map((cls) => {
@@ -363,9 +371,22 @@ ${[state, ...others].map((v) => `  ${v.setter}(${v === state ? 'true' : 'false'}
     } else ordered.push(['onClick', { kind: 'expr', code: `() => ${state.setter}((value) => !value)` }]);
   }
   if (behavior?.form && renderedTag === 'form') ordered.push(['onSubmit', { kind: 'expr', code: behavior.form.handler }]);
+  if (collectionControl !== undefined) {
+    // A collection control: its state replaces the captured attribute (aria-pressed, aria-sort, value) and any handler planned for it.
+    const replaced = new Set([...collectionControl.remove.map(jsxAttrName), ...collectionControl.set.map(([name]) => name)]);
+    for (let i = ordered.length - 1; i >= 0; i -= 1) if (replaced.has(ordered[i]?.[0] ?? '')) ordered.splice(i, 1);
+    ordered.push(...collectionControl.set.map(([name, value]) => [name, value] as [string, JsxAttrValue]));
+  }
+  const item = ctx.collections?.itemRoots.get(gn.path);
+  if (item !== undefined) {
+    ordered.unshift(['key', { kind: 'string', value: item.key }]);
+    ordered.push(['data-uidna-item', { kind: 'string', value: item.key }]);
+  }
 
   // children
   const children: JsxChild[] = [];
+  const collection = ctx.collections?.containers.get(gn.path);
+  const countText = ctx.collections?.texts.get(gn.path);
   if (placeholder) children.push({ kind: 'text', value: placeholderText(placeholder) });
   else if (renderedTag === 'textarea') {
     // The initial value was written as the defaultValue attribute above; a textarea has no element children.
@@ -373,9 +394,28 @@ ${[state, ...others].map((v) => `  ${v.setter}(${v === state ? 'true' : 'false'}
     const text = gn.node.text;
     if (binding?.text !== undefined) children.push({ kind: 'expr', code: binding.text });
     else if (binding?.link !== undefined && gn.renderedTag === 'a') children.push({ kind: 'expr', code: `${binding.link}.label` });
+    else if (countText !== undefined) children.push({ kind: 'expr', code: countText });
     else if (behavior !== undefined && behavior.textConditions.length > 0) children.push({ kind: 'expr', code: textConditionExpr(behavior.textConditions) });
     else if (text !== null && text.length > 0) children.push({ kind: 'text', value: text });
-    for (const child of gn.children) children.push(...renderNode(child, ctx, scope));
+    if (collection !== undefined && scope.rows !== undefined) {
+      // Items are rendered once into a keyed map; the view decides which show and in what order.
+      const rows = scope.rows.get(collection.suffix) ?? [];
+      let placed = false;
+      for (const child of gn.children) {
+        const row = ctx.collections?.itemRoots.get(child.path);
+        if (row?.plan !== collection) {
+          children.push(...renderNode(child, ctx, scope));
+          continue;
+        }
+        const [jsx] = renderNode(child, ctx, scope);
+        if (jsx !== undefined) rows.push({ key: row.key, jsx });
+        if (!placed) {
+          children.push({ kind: 'expr', code: `visible${collection.suffix}.map((item) => rows${collection.suffix}[item.key])` });
+          placed = true;
+        }
+      }
+      scope.rows.set(collection.suffix, rows);
+    } else for (const child of gn.children) children.push(...renderNode(child, ctx, scope));
   }
   const selfClosing = VOID_TAGS.has(renderedTag);
   return [element(renderedTag, ordered, selfClosing ? [] : children, selfClosing)];
@@ -473,13 +513,41 @@ function stateDeclarations(vars: readonly StateVar[], forms: readonly FormBehavi
   return lines;
 }
 
-function reactImport(vars: readonly StateVar[], forms: readonly FormBehavior[], title: string | undefined): string | null {
+function reactImport(vars: readonly StateVar[], forms: readonly FormBehavior[], title: string | undefined, collections = false): string | null {
   const names: string[] = [];
   if (vars.some((v) => v.escapeTransitionId !== null) || title !== undefined) names.push('useEffect');
-  if (vars.length > 0) names.push('useState');
+  if (collections) names.push('useMemo');
+  if (vars.length > 0 || collections) names.push('useState');
   if (forms.length > 0) names.push('type FormEvent');
+  if (collections) names.push('type ReactElement');
   if (names.length === 0) return null;
   return `import { ${names.join(', ')} } from 'react';`;
+}
+
+/** Import path of the collection view helper from any `src/<dir>/` file. */
+const COLLECTION_IMPORT = '../lib/collection';
+
+/** State, view and rows of the collections rendered in a file (inside the component body). */
+function collectionDeclarations(plans: readonly CollectionPlan[], rows: ReadonlyMap<string, readonly { readonly key: string; readonly jsx: JsxChild }[]>): string[] {
+  const lines: string[] = [];
+  for (const plan of plans) {
+    const s = plan.suffix;
+    lines.push(`  // Collection ${commentText(plan.id)}: items shown through the observed search, filter and sort (see README "Collections").`);
+    if (plan.hasSearch) lines.push(`  const [query${s}, setQuery${s}] = useState('');`);
+    if (plan.hasFilter) lines.push(`  const [filter${s}, setFilter${s}] = useState<string | null>(null);`);
+    if (plan.hasSort) lines.push(`  const [sort${s}, setSort${s}] = useState<{ field: string; direction: 'ascending' | 'descending' } | null>(${plan.initialSort === null ? 'null' : `{ field: ${jsString(plan.initialSort.field)}, direction: ${jsString(plan.initialSort.direction)} }`});`);
+    const view = `{ query: ${plan.hasSearch ? `query${s}` : "''"}, filter: ${plan.hasFilter ? `filter${s}` : 'null'}, sort: ${plan.hasSort ? `sort${s}` : 'null'} }`;
+    const deps = [plan.hasSearch ? `query${s}` : null, plan.hasFilter ? `filter${s}` : null, plan.hasSort ? `sort${s}` : null].filter((d): d is string => d !== null);
+    lines.push(`  const visible${s} = useMemo(() => applyView(COLLECTION_${s}, ${view}), [${deps.join(', ')}]);`);
+    lines.push(`  const rows${s}: Record<string, ReactElement> = {`);
+    for (const row of rows.get(s) ?? []) {
+      lines.push(`    ${jsString(row.key)}: (`);
+      lines.push(...printJsx(row.jsx, '      '));
+      lines.push('    ),');
+    }
+    lines.push('  };');
+  }
+  return lines;
 }
 
 function fileHeader(ctx: RenderContext, what: string): string[] {
@@ -493,22 +561,30 @@ function routerImport(scope: ScopeState): string | null {
 
 /** Render a section or page file. */
 export function renderSection(section: SectionPlan, ctx: RenderContext, options: SectionRenderOptions = {}): RenderedFile {
-  const scope: ScopeState = { file: section.file, component: null, pathAttr: (node) => ({ kind: 'string', value: node.path }), imports: new Set(), router: new Set() };
+  const scope: ScopeState = { file: section.file, component: null, pathAttr: (node) => ({ kind: 'string', value: node.path }), imports: new Set(), router: new Set(), rows: new Map() };
   const roots = section.roots.flatMap((root) => renderNode(root, ctx, scope));
   const vars = ctx.behavior.stateVars.get(section.file) ?? [];
   const forms = ctx.behavior.forms.get(section.file) ?? [];
+  const collections = (ctx.collections?.plans ?? []).filter((plan) => plan.file === section.file);
   const lines: string[] = [...fileHeader(ctx, options.doc ?? `${section.name.toLowerCase()} section of the page`)];
-  const react = reactImport(vars, forms, options.title);
+  const react = reactImport(vars, forms, options.title, collections.length > 0);
   if (react) lines.push(react);
   const router = routerImport(scope);
   if (router) lines.push(router);
   for (const name of [...scope.imports].sort()) lines.push(`import { ${name} } from '../components/${name}';`);
   if (forms.length > 0) lines.push(`import { controlValidity } from '${VALIDITY_IMPORT}';`);
+  if (collections.length > 0) lines.push(`import { applyView, type CollectionSpec } from '${COLLECTION_IMPORT}';`);
   lines.push('');
+  for (const plan of collections) {
+    lines.push(`/** Items of collection ${commentText(plan.id)} as the scan measured them, and the observed search, filters and sort. */`);
+    lines.push(plan.constant);
+    lines.push('');
+  }
   if (section.kind === 'page') lines.push(`/** ${commentText(options.doc ?? `Page ${section.name}`)}: ${section.roots.map((r) => `<${r.renderedTag}> at path ${r.path || '(body)'}`).join(', ') || 'no own content (everything is in the shared layout)'}. */`);
   else lines.push(`/** ${section.name} landmark(s): ${section.roots.map((r) => `<${r.renderedTag}> at path ${r.path || '(body)'}`).join(', ')}. */`);
   lines.push(`export function ${section.name}() {`);
   lines.push(...stateDeclarations(vars, forms, options.title));
+  lines.push(...collectionDeclarations(collections, scope.rows ?? new Map()));
   lines.push('  return (');
   if (roots.length === 1 && roots[0] !== undefined) lines.push(...printJsx(roots[0], '    '));
   else {

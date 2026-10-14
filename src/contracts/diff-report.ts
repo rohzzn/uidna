@@ -106,6 +106,16 @@ export const BehaviorComparisonSchema = z.strictObject({
   }),
   pixels: PixelComparisonSchema.nullable(),
   generatedScreenshot: z.string().nullable(),
+  /** For a transition a collection rule classifies: the items expected and shown after the action, by key (absent before 0.3.0). */
+  collection: z
+    .strictObject({
+      ruleId: z.string().min(1),
+      kind: z.enum(['search', 'filter', 'sort', 'reset']),
+      expected: z.array(z.string()),
+      generated: z.array(z.string()).nullable(),
+      match: z.boolean(),
+    })
+    .optional(),
   findings: z.array(FindingSchema),
 });
 export type BehaviorComparison = z.infer<typeof BehaviorComparisonSchema>;

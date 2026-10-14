@@ -7,6 +7,7 @@
  * JSON responses become typed mocks; every implemented transition gets a
  * Playwright behavior test.
  */
+import { collectionContainerPaths, planCollections, renderCollectionLib, type CollectionPlan, type CollectionPlanning } from './collections.js';
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
@@ -187,6 +188,8 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
   const rejectedComponents: { definitionId: string; generatedName: string; reason: string }[] = [];
   const reports: BehaviorReport[] = [];
   const forms: FormBehavior[] = [];
+  const collectionPlans: CollectionPlan[] = [];
+  const collectionGaps: { readonly id: string; readonly reason: string }[] = [];
   const skipped: SkippedProperty[] = [];
   const bodyClassNotes: string[] = [];
   let registry: AssetRegistry | null = null;
@@ -220,13 +223,16 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
     // state of a transition lives in one file; planning repeats with those definitions excluded.
     const namesBefore = new Set(usedNames);
     const excludedDefinitions = new Set<string>();
-    const planPage = (): { components: ComponentPlanning; behavior: BehaviorPlan } => {
+    // Collections with observed search, filter or sort render their items from data: their rows stay out of component instances.
+    const collectionContainers = collectionContainerPaths(dna, model);
+    const planPage = (): { components: ComponentPlanning; behavior: BehaviorPlan; collections: CollectionPlanning } => {
       usedNames.clear();
       for (const name of namesBefore) usedNames.add(name);
-      const components = planComponents(dna, model, assets, classesOf, { usedNames, routeOf, skipAbsent: multi, excludedRoots, excludedDefinitions });
+      const components = planComponents(dna, model, assets, classesOf, { usedNames, routeOf, skipAbsent: multi, excludedRoots: [...excludedRoots, ...collectionContainers], excludedDefinitions });
       const resolver = makeScopeResolver(model, sections, components);
-      const behavior = planBehavior(model, pageTransitions, tokens.index, resolver, { routeOf, routeByPageId: site.routeByPageId, pageRoute: page.route, hoisted: hoistedLookup });
-      return { components, behavior };
+      const collections = planCollections(dna, model, resolver, tokens.index);
+      const behavior = planBehavior(model, pageTransitions, tokens.index, resolver, { routeOf, routeByPageId: site.routeByPageId, pageRoute: page.route, hoisted: hoistedLookup, claimed: collections.claimed });
+      return { components, behavior, collections };
     };
     let planned2 = planPage();
     for (let pass = 0; pass < 4 && planned2.behavior.conflictingInstanceRoots.size > 0; pass += 1) {
@@ -238,8 +244,10 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
       if (excludedDefinitions.size === before) break;
       planned2 = planPage();
     }
-    const { components, behavior } = planned2;
-    const ctx: RenderContext = { model, tokens: tokens.index, assets, components, behavior, classesOf, scanId: dna.target.scanId, routeOf };
+    const { components, behavior, collections } = planned2;
+    const ctx: RenderContext = { model, tokens: tokens.index, assets, components, behavior, classesOf, scanId: dna.target.scanId, routeOf, collections };
+    collectionPlans.push(...collections.plans);
+    collectionGaps.push(...collections.notImplemented);
 
     progress.report({ message: `Rendering ${multi ? `page ${page.page.id}` : 'sections and components'}`, current: 3, total: 7 });
     for (const plan of components.components) {
@@ -287,6 +295,7 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
     files.set(app.file, app.code);
   }
   if (forms.length > 0) files.set('src/lib/validity.ts', renderValidityLib());
+  if (collectionPlans.length > 0) files.set('src/lib/collection.ts', renderCollectionLib());
 
   // Mocks: Phase 1 JSON assets stay in src/mocks/data.ts; captured responses (`data` assets) get one typed file each.
   const mockInputs: { asset: (typeof dna.assets)[number]; json: unknown; reason: string | null }[] = [];

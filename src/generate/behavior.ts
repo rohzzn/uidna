@@ -118,7 +118,9 @@ export type Expectation =
   | { readonly kind: 'visible'; readonly locator: LocatorSpec; readonly visible: boolean }
   | { readonly kind: 'text'; readonly locator: LocatorSpec; readonly text: string; readonly exact: boolean }
   | { readonly kind: 'url'; readonly pattern: string }
-  | { readonly kind: 'value'; readonly locator: LocatorSpec; readonly value: string; readonly control: 'text' | 'select' | 'checkbox' };
+  | { readonly kind: 'value'; readonly locator: LocatorSpec; readonly value: string; readonly control: 'text' | 'select' | 'checkbox' }
+  /** The visible items of a collection, by `data-uidna-item`, in display order. */
+  | { readonly kind: 'collection'; readonly containerPath: string; readonly keys: readonly string[] };
 
 /** One action of a behavior test. */
 export interface TestStep {
@@ -210,6 +212,8 @@ export interface BehaviorOptions {
   readonly pageRoute?: string;
   /** Nodes under a header/footer that a layout renders from another page. */
   readonly hoisted?: (path: string) => HoistedLocation | null;
+  /** Transitions a collection reproduces (see `planCollections`): reported implemented with its expectations, never wired here. */
+  readonly claimed?: ReadonlyMap<string, { readonly detail: string; readonly file: string; readonly expectations: readonly Expectation[] }>;
 }
 
 /** Attributes a test asserts directly (visibility covers `hidden`, the router covers `href`). */
@@ -481,6 +485,12 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
       revert,
       dedupeKey: dedupeKey(transition, viewport),
     });
+
+    const claim = options.claimed?.get(transition.id);
+    if (claim !== undefined) {
+      report(transition, 'implemented', claim.detail, claim.file, testOf([...claim.expectations]));
+      continue;
+    }
 
     const target = model.byPath.get(action.target.nodePath);
     if (target === undefined || target.kind === 'skipped') {
