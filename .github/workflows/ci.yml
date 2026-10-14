@@ -44,6 +44,7 @@ jobs:
           - { name: 'Phase 1 loop on Fixture A + MCP', files: 'tests/loop.e2e.test.ts tests/mcp.e2e.test.ts' }
           - { name: 'Phase 2 multi-page on Fixture D', files: 'tests/multipage.e2e.test.ts' }
           - { name: 'Phase 2 forms and data on Fixture C', files: 'tests/forms.e2e.test.ts' }
+          - { name: 'Phase 2 dashboard on Fixture B', files: 'tests/dashboard.e2e.test.ts' }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

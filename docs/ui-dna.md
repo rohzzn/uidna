@@ -224,6 +224,52 @@ become assets of kind `data`: a redacted copy under `localPath`, the `request` t
 produced them and `measured` / `network` provenance. Generators turn them into typed,
 labeled mocks; no backend is ever implied.
 
+## Breakpoints and responsive rules (0.3.0)
+
+`visual.responsive` says where the layout changes, which the scanned widths alone cannot
+tell. The scan reads the width conditions of the page's readable stylesheets (`@media`,
+an `@import` media list, a `<link media>`) into `conditions`, each with its `thresholds`:
+the smallest viewport width of the wider side, so `(max-width: 599px)` and
+`(min-width: 600px)` both flip at 600. A `print` condition is `never`; parts the parser
+could not convert to pixels are listed as `unsupported`. Cross-origin stylesheets cannot
+be read and are reported as limitations.
+
+Probing then resizes the page between the scanned widths, with no other interaction and
+every non-GET request blocked, and compares a layout signature (rendered or not,
+`display`, `position`, `flex-direction`, `float`, grid track count). A stylesheet
+threshold inside a changing interval is confirmed one pixel apart; any remaining change is
+bisected within a budget. Each located change is a `breakpoint` with `minWidth`, the
+`bracket` that located it (`lower < minWidth <= upper`), and `source: "css"` when a
+condition explains it or `"probe"` when none does. `rules` list the layout properties of
+each node that change there, with their values `below` and `above`; properties the
+signature leaves out (sizes, fonts, colors) are added from the two captures around a
+stylesheet threshold when the condition's rules declare them. `observedEffect` on a
+condition is `false` when probing saw no change at its threshold and `null` when no probe
+reached it (a threshold above the widest scanned width). `probes` record the widths
+measured per page.
+
+Breakpoint tokens in `visual.tokens.breakpoints` keep their 0.2.0 meaning: observed
+differences between scanned widths.
+
+## Collections (0.3.0)
+
+`collections.definitions` lists repeated items measured in each page's widest base
+state: table rows, list items, card grids. A collection names its container, the item
+`identity` (an identity attribute such as `data-id`, else a digest of the item's text,
+never a node path), its `fields` (table columns with their header text, or text-bearing
+parts present in most items) with a `valueKind` (`number`, `date`, `text`), and the items
+in base order with their displayed values.
+
+`collections.rules` classify observed transitions by item identity against the base
+items: `search` (a fill on a search control left a subset, with the `match` and the
+fields that explain both the kept and the removed items), `filter` (a control left a
+subset; the predicate is a field `equals` or `contains` the control's label, else the
+observed membership `in-keys`), `sort` (same items, new order; the field, direction and
+comparator that explain it, and the `aria-sort` the page showed) and `reset` (back to the
+base view). Each rule keeps the views before and after, and the empty-state message
+shown when no item remained. Rules are `observed`; an agent's reading of them belongs in
+annotations.
+
 ## Versioning
 
 `dnaVersion` follows semver. Readers accept documents of the same major version.

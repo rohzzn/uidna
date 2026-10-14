@@ -49,6 +49,8 @@ export interface StaticServerOptions {
   readonly spaFallback?: boolean;
   /** Answer `POST /api/*` with a JSON acknowledgement, as the fixture server does. */
   readonly fixtureApi?: boolean;
+  /** Called for every request before it is answered (tests use it to prove a request never arrived). */
+  readonly onRequest?: (request: { readonly method: string; readonly pathname: string }) => void;
 }
 
 /** Start serving `dir`. */
@@ -65,6 +67,7 @@ export async function serveStatic(dir: string, options: StaticServerOptions = {}
     void (async () => {
       try {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+        options.onRequest?.({ method: (req.method ?? 'GET').toUpperCase(), pathname: url.pathname });
         if (options.fixtureApi && req.method === 'POST' && url.pathname.startsWith('/api/')) {
           let size = 0;
           req.on('data', (chunk: Buffer) => {

@@ -7,7 +7,37 @@ semantic versioning. The document schema has its own changelog in
 
 ## [Unreleased]
 
+Completes Phase 2 with responsive-rule inference and search, filter and sort inference,
+each proven end to end on the new Fixture B (an orders dashboard) in real Chromium.
+
+### Added
+
+- Responsive-rule inference: `scan_interface` reads the width conditions of readable
+  stylesheets and resizes between the scanned widths (resize only, every non-GET request
+  blocked) to locate where the layout changes. Located breakpoints, with their bracket,
+  explaining condition and the layout values that change, are in `visual.responsive`
+  (schema 0.3.0) and in the scan result. `responsive` input to tune or turn it off.
+- The generator declares the located breakpoints and attributes each style change to the
+  breakpoint that explains it; the verifier checks the generated layout on both sides of
+  every probed breakpoint (`responsive` comparisons in the DiffReport).
+- Search, filter and sort inference: tables, lists and card grids become collections
+  (schema 0.3.0) with item identity, fields and value kinds; transitions that narrowed or
+  reordered them become search, filter, sort and reset rules with the field, match,
+  predicate or order that explains them, and the empty-state message of an empty result.
+- `explore_interactions` tries the search box of a collection with a query taken from its
+  items, then one that matches nothing, then clears it; `collections: false` skips it.
+- Generated collections render their items through search, filter and sort state, with
+  `aria-pressed` and `aria-sort` following it; the verifier compares the items shown after
+  a replay with the original's by identity and order, and generated tests assert them.
+- Fixture B and its end-to-end acceptance test, in the CI matrix.
+
 ### Changed
+
+- Exploration blocks every non-GET request for the whole run: an action that sends one is
+  a side effect that never reaches its server. A control repeated in every item of a
+  collection is one action: after a side effect it is skipped in every item.
+- Captures keep identity attributes (`data-id` and similar) and table `scope`, `colspan`
+  and `rowspan`.
 
 - `uidna setup` registers `npx -y @rohzzn/uidna@latest serve`. With the bare package name,
   npx run inside a checkout of this repository resolved to the checkout and the server

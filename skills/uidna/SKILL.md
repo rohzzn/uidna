@@ -19,14 +19,19 @@ and report. It makes no model calls of its own.
    site rather than a page, pass `crawl: { maxPages, include, exclude }`: same-origin
    links are followed breadth-first, cross-origin links are recorded and never followed.
    Pass `captureBodies: "json"` when the page renders data from fetch/XHR calls; JSON
-   responses are stored redacted as data assets. Read the returned pages, states, assets
-   and limitations. Then `explore_interactions` to record states and transitions: policy
+   responses are stored redacted as data assets. The scan also locates breakpoints from
+   the stylesheets and by resizing (`responsive` to tune it); read `breakpoints` in the
+   result. Read the returned pages, states, assets and limitations. Then `explore_interactions` to record states and transitions: policy
    `safe` never touches forms; policy `forms` fills forms with synthetic values (override
    them per control with `formValues`, never with real credentials) and submits them
    empty and filled to observe validation, with every submission request blocked. Use
-   `forms` only on interfaces the user may test that way. Both steps write under
+   `forms` only on interfaces the user may test that way. Search boxes of tables and lists
+   are tried with a query from their own items (`collections: false` to skip). Every
+   non-GET request is blocked while exploring. Both steps write under
    `./.uidna/<scan-id>/`.
-3. **Understand.** `inspect_dna` for the summary and facets, `inspect_element` for a
+3. **Understand.** `inspect_dna` for the summary and facets (`visual.responsive` for the
+   breakpoints and what changes there, `collections` for tables and lists and how search,
+   filter and sort changed them), `inspect_element` for a
    node's box, style and tokens, `search_components` for fingerprinted candidates,
    `extract_tokens` for clusters with sample counts. Every value carries provenance:
    `measured`, `observed`, `inferred` or `unknown`. Keep them apart in everything you

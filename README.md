@@ -89,12 +89,12 @@ uidna reconstruct http://localhost:3000 ./my-site --crawl '{"maxPages":5}' --cap
 
 | Step | What happens | Who decides |
 | --- | --- | --- |
-| **Capture** | Chromium loads each page at each viewport. UI DNA records the DOM, computed styles filtered to rendering properties, bounding boxes, the accessibility tree, form facts, fonts, assets, network metadata and one screenshot per state. With a crawl, same-origin links are followed breadth-first within a page budget; with body capture, JSON responses are stored as redacted data assets. | UI DNA |
-| **Explore** | Hover, focus, Escape, Tab, and clicks on non-submitting buttons, summaries, tabs and disclosure or menu triggers, on every page. Links to another crawled page are followed once and recorded as navigation transitions. The `forms` policy also fills each form with synthetic values and submits it empty and filled, with every submission request blocked. Every action is snapshotted, performed, diffed and reverted; every skip has a reason. | UI DNA |
-| **Measure** | Tokens come from clustering measured values, with sample counts. Component candidates come from structural fingerprints across pages, with instances, varying props, variants and a confidence derived from agreement. Header and footer shared by every page become a layout. | UI DNA |
+| **Capture** | Chromium loads each page at each viewport. UI DNA records the DOM, computed styles filtered to rendering properties, bounding boxes, the accessibility tree, form facts, fonts, assets, network metadata and one screenshot per state. It reads the page's stylesheet width conditions and resizes between the scanned widths to locate where the layout actually changes. With a crawl, same-origin links are followed breadth-first within a page budget; with body capture, JSON responses are stored as redacted data assets. | UI DNA |
+| **Explore** | Hover, focus, Escape, Tab, and clicks on non-submitting buttons, summaries, tabs and disclosure or menu triggers, on every page. Search boxes of tables and lists are tried with a query taken from their items, then one that matches nothing, then cleared. Links to another crawled page are followed once and recorded as navigation transitions. The `forms` policy also fills each form with synthetic values and submits it empty and filled. Every non-GET request is blocked for the whole run. Every action is snapshotted, performed, diffed and reverted; every skip has a reason. | UI DNA |
+| **Measure** | Tokens come from clustering measured values, with sample counts. Component candidates come from structural fingerprints across pages, with instances, varying props, variants and a confidence derived from agreement. Header and footer shared by every page become a layout. Repeated items become collections, and each transition that narrowed or reordered them is classified as a search, filter, sort or reset with the field that explains it. | UI DNA |
 | **Understand and annotate** | The agent reads the document, names components and tokens, records what it infers and why, and authorizes assets the user owns. Agent readings are stored as `inferred` next to the measured values, never over them. | the agent |
-| **Generate** | A deterministic React + TypeScript + Tailwind + Vite project: one component per page behind react-router, semantic HTML, extracted components, tokens as CSS variables and a Tailwind theme, observed transitions as React state with the original ARIA attributes, forms with the observed validation messages, typed mocks from captured data, and a Playwright suite that replays the recorded transitions. | UI DNA |
-| **Verify** | Pixel diff, SSIM, geometry, computed styles and element presence per page, state and viewport. Recorded transitions are replayed, including fills, blocked submits and navigations, and the generated Playwright suite can run too. One finding per concrete difference, with the original and generated values. | UI DNA |
+| **Generate** | A deterministic React + TypeScript + Tailwind + Vite project: one component per page behind react-router, semantic HTML, extracted components, tokens as CSS variables and a Tailwind theme with the located breakpoints, observed transitions as React state with the original ARIA attributes, collections rendered through search, filter and sort state, forms with the observed validation messages, typed mocks from captured data, and a Playwright suite that replays the recorded transitions. | UI DNA |
+| **Verify** | Pixel diff, SSIM, geometry, computed styles and element presence per page, state and viewport, plus the layout on both sides of every located breakpoint. Recorded transitions are replayed, including fills, blocked submits and navigations; after a search, filter or sort the generated items are compared with the original's by identity and order. The generated Playwright suite can run too. One finding per concrete difference, with the original and generated values. | UI DNA |
 | **Repair and report** | The agent edits the project against the DiffReport and re-verifies; regressions and resolved findings are tracked per attempt. A static HTML report shows the evidence. | the agent |
 
 Every value in the document carries provenance: `measured`, `observed`, `inferred` (agent
@@ -119,7 +119,7 @@ grid, an image, an FAQ accordion and a footer, at 1280, 768 and 390 pixels wide.
 - The generated project builds; its build, the recorded transitions, and an injected CSS
   and behavior regression are each a CI test.
 
-**Phase 2, sites, forms and data.** Each capability below is a CI gate on its own fixture.
+**Phase 2, sites, forms, data, collections and breakpoints.** Each capability below is a CI gate on its own fixture.
 
 - **Multi-page crawl.** `crawl: { maxPages, include, exclude }` follows same-origin links
   breadth-first; cross-origin links are recorded and never followed. Pages carry their
@@ -135,11 +135,30 @@ grid, an image, an FAQ accordion and a footer, at 1280, 768 and 390 pixels wide.
   is blocked, recorded as a side effect and never repeated.
 - **Data.** `captureBodies: "json"` stores JSON responses from fetch and XHR as redacted,
   size-capped data assets. The generator turns each one into a typed mock.
+- **Responsive rules.** Breakpoints are located where the layout actually changes, not at
+  the scanned widths: stylesheet thresholds are read and confirmed one pixel apart by
+  resizing, and changes no stylesheet explains are found by bisection within a budget.
+  Probing only resizes the page and blocks every non-GET request. The document lists each
+  breakpoint with its bracket and condition and the layout values that change there; the
+  generator declares those breakpoints and attributes each style change to the one that
+  explains it; the verifier checks the generated layout on both sides of each.
+- **Search, filter and sort.** Tables, lists and card grids become collections with item
+  identity, fields and value kinds. A search box is tried with a query taken from the
+  items' own text; chips, tabs and column headers are clicked as usual. Each change is
+  classified against the base items: a search with its match and fields, a filter with
+  the field and value it keeps, a sort with its field, direction and comparator, a reset.
+  The generated project renders the items through that state, and the verifier compares
+  the generated items with the original's by identity and order.
+- **Row actions.** A control repeated in every item of a collection (an "Archive" button
+  per row) is one action: once it causes a side effect, it is skipped in every other item.
 - **Behavior tests.** The generated project includes `tests/behavior.spec.ts`: one
   Playwright test per implemented transition, asserting the observed delta. Transitions
   the generator did not reproduce, or that caused a side effect when observed, are
   skipped with the reason. `verify_reconstruction` runs the suite when asked.
 
+[Fixture B](fixtures/b-dashboard) is an orders dashboard: a table loaded from a JSON
+endpoint with a search box, status chips and sortable columns, a row action that posts,
+and breakpoints at 600, 960 and 1100px, none of them a scanned width.
 [Fixture C](fixtures/c-form) is a signup form with client-side validation, a POST
 endpoint and a JSON list. [Fixture D](fixtures/d-multipage) is a three-page site with a
 shared header and footer, tabs, a pricing toggle and a cross-origin footer link.
@@ -148,8 +167,8 @@ shared header and footer, tabs, a pricing toggle and a cross-origin footer link.
 
 | Command | Tool | Answers |
 | --- | --- | --- |
-| `uidna scan <url>` | `scan_interface` | What is on each page at each viewport? `--crawl` for a site, `--capture-bodies json` for data. Creates `./.uidna/<scan-id>/`. |
-| `uidna explore <scan>` | `explore_interactions` | What changes when I interact? `--policy safe` (default) or `forms`; `--pages` and `--viewports` narrow it. |
+| `uidna scan <url>` | `scan_interface` | What is on each page at each viewport, and where does the layout change? `--crawl` for a site, `--capture-bodies json` for data, `--responsive` to tune probing. Creates `./.uidna/<scan-id>/`. |
+| `uidna explore <scan>` | `explore_interactions` | What changes when I interact? `--policy safe` (default) or `forms`; `--pages` and `--viewports` narrow it; `--no-collections` skips search boxes. |
 | `uidna inspect <scan>` | `inspect_dna` | Summary, one facet, one path, or the whole document. |
 | `uidna element <scan> <state>` | `inspect_element` | One node: box, style, tokens, a11y, form facts, ancestors, evidence. |
 | `uidna components <scan>` | `search_components` | Fingerprinted component candidates in stable order, matched across pages. |
@@ -237,10 +256,12 @@ redistributes third-party assets: unauthorized assets become labeled placeholder
 you mark them authorized with `annotate_dna`. See [DISCLAIMER.md](DISCLAIMER.md) and
 [SECURITY.md](SECURITY.md).
 
-The `forms` policy types synthetic values into the page and runs its submit handlers.
-Every non-GET request is blocked from the first step of a form's chain to the fresh load
-that ends it, including beacons sent while the page unloads, but use the policy only on
-interfaces you may test that way. A crawl stays on the seed's origin, honors `robots.txt`
+Exploration blocks every non-GET request for the whole run, including beacons sent while
+a page unloads: an action that tries to send one is recorded as a side effect and never
+repeated, and the request never reaches its server. A page that loads its content with
+POST requests shows its error state instead. The `forms` policy types synthetic values into
+the page and runs its submit handlers; search boxes are typed into with text taken from the
+page's own items. Use them only on interfaces you may test that way. A crawl stays on the seed's origin, honors `robots.txt`
 and stops at its page budget.
 
 To analyze an authenticated app, start your own Chrome with `--remote-debugging-port=9222`,
@@ -256,8 +277,16 @@ yours; UI DNA reads the page and performs the same safe interactions.
   page showed them without one, and the generated README says so.
 - `<iframe>` content and shadow DOM are not entered; they are reported as limitations.
 - Inline `<svg>` markup is not captured; such nodes become placeholders.
-- Breakpoints are observed at the scanned widths: a breakpoint token says the layout at
-  that width differs from the next wider scanned width, not where the media query lies.
+- Breakpoints are located from readable stylesheets and by resizing between the scanned
+  widths. Cross-origin stylesheets, container queries and continuously varying values
+  (`clamp()`, `vw`) are not breakpoints; a threshold above the widest or below the
+  narrowest scanned width is read from the stylesheet but not seen. When two located
+  breakpoints fall between the same scanned widths, a property that changes twice there is
+  generated at the later one.
+- Collections are explored through search boxes outside forms, and through the chips,
+  tabs and column headers the click round already clicks. Selects, checkboxes, combined
+  filters, server-side search, pagination and load-more are not explored or reproduced;
+  generated collections show the captured items, not the endpoint's data.
 - Spacing tokens are used values: a `margin: auto` shows up as the pixel margin it produced.
 - Hover and focus transitions are reproduced as CSS variants at every viewport; click
   transitions are reproduced when the changed nodes live in the same section or component
@@ -283,8 +312,8 @@ src/verify/        render, visual + behavioral compare, generated-test runs, Dif
 src/application/   workflows shared by the CLI and the MCP server, crawl, scan store
 src/server/        MCP adapter
 skills/uidna/      SKILL.md
-fixtures/          A (marketing page), C (signup form and data), D (three-page site)
-tests/             end-to-end loops on Fixtures A, C and D, and the MCP server over stdio
+fixtures/          A (marketing page), B (dashboard), C (signup form and data), D (three-page site)
+tests/             end-to-end loops on Fixtures A, B, C and D, and the MCP server over stdio
 ```
 
 ```bash
