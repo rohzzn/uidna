@@ -51,6 +51,17 @@ if (explore.ok && explore.value) {
   lines.push(`| explore (safe) | ${c.discovered} interactive elements discovered, ${c.explored} interactions performed, ${c.changed} produced a new state, ${c.skipped} skipped with a reason; ${doc.states.transitions.length} transitions, ${derived.length} derived states |`);
 }
 lines.push(`| tokens | ${tokens.colors.length} colors, ${tokens.typography.length} typography styles, ${tokens.fontSizes.length} font sizes, ${tokens.spacing.length} spacing values, ${tokens.radii.length} radii, ${tokens.shadows.length} shadow${tokens.shadows.length === 1 ? '' : 's'}, ${tokens.breakpoints.length} breakpoints |`);
+const responsive = doc.visual.responsive;
+if (responsive !== undefined) {
+  const located = responsive.breakpoints.map((b) => `${b.minWidth}px (${b.source}, bracket ${b.bracket.lower}–${b.bracket.upper})`).join(', ');
+  const probes = responsive.probes.reduce((n, p) => n + p.widths.length, 0);
+  lines.push(`| breakpoints | located ${located || 'none'}; ${responsive.conditions.length} stylesheet conditions read, ${responsive.rules.length} layout rules, ${probes} widths measured |`);
+}
+const collections = doc.collections;
+if (collections !== undefined) {
+  const kinds = ['search', 'filter', 'sort', 'reset'].map((k) => `${collections.rules.filter((r) => r.kind === k).length} ${k}`).join(', ');
+  lines.push(`| collections | ${collections.definitions.length} detected (${collections.definitions.map((c) => `${c.layout} of ${c.items.length}`).join(', ')}); rules: ${kinds} |`);
+}
 lines.push(`| components | ${doc.components.definitions.length} candidates, ${doc.components.instances.length} instances (largest: ${doc.components.definitions[0]?.generatedName ?? '-'} with ${doc.components.definitions[0]?.instanceCount ?? 0}) |`);
 lines.push(`| behavior | ${doc.behavior.length} observed rules; ${doc.limitations.length} limitations recorded |`);
 for (const report of attempts) {
@@ -59,7 +70,8 @@ for (const report of attempts) {
     .map(([k, n]) => `${k} ${n}`)
     .join(', ');
   const pixels = report.visual.map((v) => `${v.viewport.width}px ${v.pixels?.diffRatio === null || v.pixels?.diffRatio === undefined ? 'n/a' : (v.pixels.diffRatio * 100).toFixed(2) + '%'}`).join(', ');
-  lines.push(`| verify attempt ${report.attempt} | ${report.summary.findings} findings (${byCat || 'none'}); pixel diff ${pixels}; ${report.summary.transitionsMatched}/${report.summary.transitionsReplayed} replayed transitions matched; ${report.regressions.length} regressions, ${report.resolved.length} resolved |`);
+  const breakpoints = report.summary.breakpoints === undefined ? '' : `; ${report.summary.breakpoints.matched}/${report.summary.breakpoints.checked} breakpoints matched on both sides`;
+  lines.push(`| verify attempt ${report.attempt} | ${report.summary.findings} findings (${byCat || 'none'}); pixel diff ${pixels}; ${report.summary.transitionsMatched}/${report.summary.transitionsReplayed} replayed transitions matched${breakpoints}; ${report.regressions.length} regressions, ${report.resolved.length} resolved |`);
 }
 lines.push('');
 lines.push('Pixel ratios depend on the fonts of the machine that rendered them; the counts do not.');
