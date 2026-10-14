@@ -42,6 +42,31 @@ fixture in real Chromium.
   no longer hides a control at the same position on another.
 - Generated-test and build processes are killed with their whole process tree on Windows
   when they time out or are cancelled.
+- The forms policy holds its non-GET guard for a whole form chain, from the first step to
+  the fresh load that reverts it. Requests a page sends while unloading, such as beacons
+  and keepalive fetches, are blocked through the DevTools Protocol because Playwright
+  routing cannot see them.
+- Form chain steps find their control again after an earlier step changed the form, and
+  skip with a reason when it can no longer be matched.
+- Side effects caused by revert steps, by actions the browser reported as not performed,
+  by navigations to pages without a capture at that width, and by page-level keys are
+  attributed to their action and remembered.
+- The generator and the verifier share one replay tracer. A state reachable only through a
+  side effect is never replayed, and its generated test is skipped with the reason.
+- The verifier takes page routes from the generated project's manifest when it was
+  generated from the same scan. Pages the generator left out are reported, not compared.
+
+### Fixed
+
+- A page-controlled field name such as `constructor` no longer resolves to a built-in
+  object member when the forms policy picks a synthetic value.
+- A stale generated-test report from an earlier attempt is never read as the current one.
+- Literal routes that contain a colon, such as `/wiki/Help:Contents`, are matched as
+  literal paths.
+- Requests of a document replaced by a navigation are settled as abandoned. They used to
+  stay in flight forever, so every later stability wait ran to its timeout.
+- `verify_reconstruction` never runs the behavior tests of a project generated from
+  another scan, whose transition ids name other transitions; a limitation says why.
 
 ## [0.1.0] - 2026-10-13
 

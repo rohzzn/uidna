@@ -238,7 +238,8 @@ you mark them authorized with `annotate_dna`. See [DISCLAIMER.md](DISCLAIMER.md)
 [SECURITY.md](SECURITY.md).
 
 The `forms` policy types synthetic values into the page and runs its submit handlers.
-Submission requests are blocked before they leave the browser, but use it only on
+Every non-GET request is blocked from the first step of a form's chain to the fresh load
+that ends it, including beacons sent while the page unloads, but use the policy only on
 interfaces you may test that way. A crawl stays on the seed's origin, honors `robots.txt`
 and stops at its page budget.
 

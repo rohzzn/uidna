@@ -295,7 +295,21 @@ async function loadState(run: Run, state: UiState, limitations: string[]): Promi
  * ids may name other pages, see `generatedRoutesFromManifest`), the routes
  * are derived from the document (`pageRoute`) and a limitation says so.
  */
-async function readGeneratedRoutes(outDir: string, dna: UiDnaDocument, scanId: string, limitations: string[]): Promise<GeneratedRoutes> {
+/** The scan a manifest was generated from when it is not `scanId`; null when it names `scanId` or no scan. */
+function foreignScanOf(manifest: unknown, scanId: string): string | null {
+  if (typeof manifest !== 'object' || manifest === null || !('scanId' in manifest)) return null;
+  const named = manifest.scanId;
+  return typeof named === 'string' && named !== scanId ? named : null;
+}
+
+/** Routes the generated app renders, and the other scan its manifest names, if any (see `readGeneratedRoutes`). */
+interface GeneratedProject {
+  readonly routes: GeneratedRoutes;
+  /** The scan the project was generated from when it is not the scan being verified. */
+  readonly foreignScanId: string | null;
+}
+
+async function readGeneratedRoutes(outDir: string, dna: UiDnaDocument, scanId: string, limitations: string[]): Promise<GeneratedProject> {
   const path = join(outDir, MANIFEST_FILE);
   const fallback = 'page routes were derived from the document, so a page the generator left out (router "none", or a route pattern another page took) may be compared at a route that renders another page';
   let text: string;
@@ -304,18 +318,19 @@ async function readGeneratedRoutes(outDir: string, dna: UiDnaDocument, scanId: s
   } catch (cause) {
     const missing = typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === 'ENOENT';
     limitations.push(`${MANIFEST_FILE} of the generated project ${missing ? 'is missing' : `could not be read (${toError(cause, 'io').message})`}; ${fallback}`);
-    return generatedRoutesFromDocument(dna);
+    return { routes: generatedRoutesFromDocument(dna), foreignScanId: null };
   }
   const json = tryCatch(
     (): unknown => JSON.parse(text),
     (cause) => toError(cause, 'validation', `${MANIFEST_FILE} is not JSON`),
   );
   const routes = json.ok ? generatedRoutesFromManifest(json.value, scanId) : json;
+  const foreignScanId = json.ok ? foreignScanOf(json.value, scanId) : null;
   if (!routes.ok) {
     limitations.push(`${MANIFEST_FILE} of the generated project could not be used (${routes.error.message}); ${fallback}`);
-    return generatedRoutesFromDocument(dna);
+    return { routes: generatedRoutesFromDocument(dna), foreignScanId };
   }
-  return routes.value;
+  return { routes: routes.value, foreignScanId };
 }
 
 /* ---------------------------------------------------------------- pixels */
@@ -1319,7 +1334,7 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
   }
   if (selected.length === 0) return err(uidnaError('validation', `scan ${scan.scanId} has no base state to compare${options.viewportWidths === undefined ? '' : ' at the requested viewports'}`));
   // Only the pages the generator wrote have a route in the generated app; the others are reported, never loaded at a borrowed route.
-  const routes = await readGeneratedRoutes(outDir, dna, scan.scanId, limitations);
+  const { routes, foreignScanId } = await readGeneratedRoutes(outDir, dna, scan.scanId, limitations);
   const leftOut = new Map<string, string[]>();
   for (const state of selected) {
     if (pageNotGenerated(routes, state.pageId)) leftOut.set(state.pageId, [...(leftOut.get(state.pageId) ?? []), state.id]);
@@ -1328,7 +1343,11 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
   selected = selected.filter((s) => !leftOut.has(s.pageId));
   if (selected.length === 0) return err(uidnaError('validation', `no base state of scan ${scan.scanId} belongs to a page the generated project renders (${MANIFEST_FILE} lists ${[...routes.routeByPageId.keys()].join(', ') || 'no page'})`));
   const transitions = dna.states.transitions;
-  const runTests = options.runGeneratedTests ?? false;
+  // A project generated from another scan carries that scan's behavior tests, whose transition ids are numbered per scan: never matched against this one.
+  const runTests = (options.runGeneratedTests ?? false) && foreignScanId === null;
+  if ((options.runGeneratedTests ?? false) && foreignScanId !== null) {
+    limitations.push(`the generated behavior tests were not run: the project was generated from scan ${foreignScanId}, so its tests replay that scan's transitions, whose ids name other transitions in scan ${scan.scanId}`);
+  }
   const total = (options.build ? 1 : 0) + selected.length + transitions.length + (runTests ? 1 : 0) + 1;
   let current = 0;
   const progress = (message: string): void => {

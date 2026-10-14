@@ -32,6 +32,13 @@ interface MutableEntry {
   blocked: boolean;
 }
 
+/**
+ * Failure recorded for a request of a document the browser replaced before the request
+ * settled. Chromium cancels such requests and Playwright reports neither `requestfinished`
+ * nor `requestfailed` for them; a non-GET one may still have reached its server.
+ */
+export const ABANDONED_BY_NAVIGATION = 'abandoned: its document was replaced by a navigation';
+
 /** Records page requests; attach once per page. */
 export class NetworkLedger {
   private readonly entries: MutableEntry[] = [];
@@ -183,9 +190,11 @@ export class NetworkLedger {
   }
 
   private onResponse(response: Response): void {
-    const entry = this.byRequest.get(response.request());
+    const request = response.request();
+    const entry = this.byRequest.get(request);
     if (!entry || entry.blocked) return;
     entry.status = response.status();
+    if (this.replacesMainDocument(request, entry.status)) this.abandonPending(entry);
     const headers = response.headers();
     const contentType = headers['content-type'];
     if (contentType !== undefined) {
@@ -200,9 +209,42 @@ export class NetworkLedger {
     if (response.fromServiceWorker()) entry.fromCache = true;
   }
 
+  /**
+   * True when `request` is a main-frame navigation whose response replaces the document:
+   * not a redirect hop, and not a 204/205, which leave the current document in place.
+   */
+  private replacesMainDocument(request: Request, status: number): boolean {
+    if (!request.isNavigationRequest()) return false;
+    if (status === 204 || status === 205 || (status >= 300 && status < 400)) return false;
+    try {
+      // Service-worker requests have no frame and throw here.
+      return this.page !== null && request.frame() === this.page.mainFrame();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Settle every request still pending when a new main-frame document arrives: the browser
+   * cancels the old document's requests without telling Playwright, so `inFlight` would
+   * otherwise count them forever and every later stability wait would run to its timeout.
+   * The new document's own requests start after its response, so none is settled here.
+   */
+  private abandonPending(document: MutableEntry): void {
+    const now = Date.now();
+    for (const entry of this.entries) {
+      if (entry.settled || entry === document) continue;
+      entry.settled = true;
+      if (!entry.blocked && entry.failure === undefined) entry.failure = ABANDONED_BY_NAVIGATION;
+      entry.durationMs = Math.max(0, now - entry.startedMs);
+    }
+  }
+
   private onFinished(request: Request): void {
     const entry = this.byRequest.get(request);
     if (!entry) return;
+    // A request settled as abandoned that finishes after all was not abandoned.
+    if (entry.failure === ABANDONED_BY_NAVIGATION) delete entry.failure;
     entry.settled = true;
     const timing = request.timing();
     entry.durationMs = timing.responseEnd >= 0 ? Math.max(0, Math.round(timing.responseEnd)) : Math.max(0, Date.now() - entry.startedMs);

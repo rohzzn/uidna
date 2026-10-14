@@ -329,7 +329,7 @@ describe('verifyReconstruction on Fixture D (three pages)', () => {
       const otherScan = `${scanId}_other`;
       await writeFile(join(PARTIAL, MANIFEST_FILE), JSON.stringify({ ...manifest, scanId: otherScan, pages: manifest.pages.map((p) => ({ ...p, pageId: swap[p.pageId] ?? p.pageId })) }), 'utf8');
       const report = unwrap(
-        await verifyReconstruction({ ctx, scan, dna, outDir: PARTIAL, attempt: 5, previous: null, thresholds: DEFAULT_THRESHOLDS, build: false, label: 'manifest of another scan', evidenceId: 'ev_verify_multipage_5' }),
+        await verifyReconstruction({ ctx, scan, dna, outDir: PARTIAL, attempt: 5, previous: null, thresholds: DEFAULT_THRESHOLDS, build: false, label: 'manifest of another scan', evidenceId: 'ev_verify_multipage_5', runGeneratedTests: true }),
         'attempt 5',
       );
       console.log('[verify multipage attempt 5]', summarize(report));
@@ -341,6 +341,11 @@ describe('verifyReconstruction on Fixture D (three pages)', () => {
       for (const visual of report.visual) expect(visual.pixels?.diffRatio ?? 1, `pixel diff in ${visual.stateId}`).toBeLessThan(0.05);
       expect(report.behavioral.map((b) => [b.transitionId, b.replayed])).toEqual([['tr_01', true]]);
       expect(report.limitations.join('\n')).not.toContain('was not generated');
+      // Its behavior tests replay the other scan's transitions: they are never run against this one.
+      expect(report.limitations).toContain(
+        `the generated behavior tests were not run: the project was generated from scan ${otherScan}, so its tests replay that scan's transitions, whose ids name other transitions in scan ${scanId}`,
+      );
+      expect(report.artifacts.filter((artifact) => artifact.includes('generated-tests'))).toEqual([]);
     },
     300_000,
   );
