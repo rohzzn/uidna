@@ -1,6 +1,6 @@
 {
   "name": "@rohzzn/uidna-schema",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The UI DNA document schema: Zod schema, JSON Schema and TypeScript types for describing a user interface down to the token, the component and the state transition, with provenance on every value.",
   "license": "MIT",
   "type": "module",

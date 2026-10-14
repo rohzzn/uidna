@@ -13,7 +13,7 @@ import {
 } from './provenance.js';
 
 /** Current schema version. Documents carry it as `dnaVersion`. */
-export const UI_DNA_VERSION = '0.2.0';
+export const UI_DNA_VERSION = '0.3.0';
 
 const Id = z.string().min(1);
 const IsoDateTime = z.iso.datetime({ offset: true });
@@ -521,9 +521,96 @@ export const LayoutConstraintSchema = z.strictObject({
 });
 export type LayoutConstraint = z.infer<typeof LayoutConstraintSchema>;
 
+/* -------------------------------------------------------------- responsive */
+
+/**
+ * A width condition read from the page's stylesheets (`@media`, an `@import`
+ * or a `<link media>`). Thresholds are viewport widths at which the
+ * condition's result flips, written mobile-first: the smallest width of the
+ * wider side (`(max-width: 599px)` flips at 600).
+ */
+export const MediaConditionSchema = z.strictObject({
+  id: Id,
+  /** The condition text as the stylesheet wrote it. */
+  text: z.string().min(1),
+  kind: z.enum(['media', 'import', 'link-media']),
+  thresholds: z.array(z.number().int().positive()),
+  /** True when the condition can never match a screen viewport (e.g. `print`). */
+  never: z.boolean(),
+  /** Parts the parser did not evaluate (e.g. `calc()`), so thresholds may be incomplete. */
+  unsupported: z.array(z.string()),
+  stylesheet: z.strictObject({ url: z.string().nullable(), origin: z.enum(['same-origin', 'inline']) }),
+  /** Style rules inside the condition. */
+  ruleCount: NonNegativeInt,
+  pageIds: z.array(Id).min(1),
+  /** False when a threshold lies where probing saw no change; null when no probe reached it. */
+  observedEffect: z.boolean().nullable(),
+  provenance: MeasuredProvenanceSchema,
+});
+export type MediaCondition = z.infer<typeof MediaConditionSchema>;
+
+/**
+ * A width at which the layout changes: located by probing (resizing between
+ * the scanned widths) and, when a stylesheet condition explains it, by the
+ * stylesheet. The wider layout applies from `minWidth`; the narrower one at
+ * `bracket.lower`, the wider one at `bracket.upper`.
+ */
+export const ResponsiveBreakpointSchema = z.strictObject({
+  id: Id,
+  minWidth: z.number().int().positive(),
+  /** `css`: a stylesheet threshold explains it; `probe`: probing found it and no condition explains it. */
+  source: z.enum(['css', 'probe']),
+  bracket: z.strictObject({ lower: z.number().int().positive(), upper: z.number().int().positive() }),
+  /** False for a stylesheet threshold no probe reached (outside the probed range): read, not seen. */
+  observed: z.boolean(),
+  conditionIds: z.array(Id),
+  pageIds: z.array(Id).min(1),
+  provenance: z.discriminatedUnion('kind', [MeasuredProvenanceSchema, ObservedProvenanceSchema]),
+});
+export type ResponsiveBreakpoint = z.infer<typeof ResponsiveBreakpointSchema>;
+
+/** One layout property of one node that changes at a breakpoint, with its values on either side. */
+export const ResponsiveRuleSchema = z.strictObject({
+  id: Id,
+  breakpointId: Id,
+  pageId: Id,
+  nodePath: NodePathSchema,
+  /** A CSS property, `rendered` (visible or not) or `grid-columns` (track count). */
+  property: z.string().min(1),
+  below: z.string(),
+  above: z.string(),
+  provenance: ObservedProvenanceSchema,
+});
+export type ResponsiveRule = z.infer<typeof ResponsiveRuleSchema>;
+
+/** What probing did on one page. Probing only resizes the viewport: no clicks, keys or scrolling. */
+export const ResponsiveProbeSchema = z.strictObject({
+  pageId: Id,
+  height: z.number().int().positive(),
+  /** Every width measured, ascending (scanned widths included). */
+  widths: z.array(z.number().int().positive()),
+  maxProbes: NonNegativeInt,
+  /** True when the probe budget ran out before every change was located to 1px. */
+  exhausted: z.boolean(),
+  /** Non-GET requests the page sent while being resized; all were blocked. */
+  blockedRequests: NonNegativeInt,
+  evidenceId: Id,
+});
+export type ResponsiveProbe = z.infer<typeof ResponsiveProbeSchema>;
+
+export const ResponsiveSchema = z.strictObject({
+  breakpoints: z.array(ResponsiveBreakpointSchema),
+  conditions: z.array(MediaConditionSchema),
+  rules: z.array(ResponsiveRuleSchema),
+  probes: z.array(ResponsiveProbeSchema),
+});
+export type Responsive = z.infer<typeof ResponsiveSchema>;
+
 export const VisualSchema = z.strictObject({
   tokens: TokensSchema,
   layout: z.array(LayoutConstraintSchema),
+  /** Breakpoints located by stylesheet and probing (0.3.0); absent when not measured. */
+  responsive: ResponsiveSchema.optional(),
 });
 export type Visual = z.infer<typeof VisualSchema>;
 
@@ -628,6 +715,119 @@ export const AnnotationRecordSchema = z.strictObject({
 });
 export type AnnotationRecord = z.infer<typeof AnnotationRecordSchema>;
 
+/* ------------------------------------------------------------- collections */
+
+/** One field of a collection's items: a table column, or a text-bearing part of a list item. */
+export const CollectionFieldSchema = z.strictObject({
+  id: Id,
+  /** Header text for a table column; null when the page names no field. */
+  name: z.string().nullable(),
+  generatedName: z.string().min(1),
+  /** Path of the field's node relative to the item root (`""` is the item root itself). */
+  relativePath: NodePathSchema,
+  valueKind: z.enum(['number', 'date', 'text']),
+  /** Number of distinct values among the measured items. */
+  distinct: NonNegativeInt,
+});
+export type CollectionField = z.infer<typeof CollectionFieldSchema>;
+
+export const CollectionItemSchema = z.strictObject({
+  /** Identity across states: `<attribute>:<value>` or `t:<text digest>`. */
+  key: z.string().min(1),
+  nodeId: Id,
+  nodePath: NodePathSchema,
+  /** Displayed text per field id. */
+  values: z.record(z.string(), z.string()),
+});
+export type CollectionItem = z.infer<typeof CollectionItemSchema>;
+
+/** Repeated items in one container (table rows, list items, a card grid), measured in a base state. */
+export const CollectionSchema = z.strictObject({
+  id: Id,
+  pageId: Id,
+  stateId: Id,
+  layout: z.enum(['table', 'list', 'grid']),
+  container: z.strictObject({ nodeId: Id, nodePath: NodePathSchema, tag: z.string().min(1), role: z.string().nullable(), name: z.string().nullable() }),
+  item: z.strictObject({ tag: z.string().min(1), role: z.string().nullable(), fingerprint: z.string().min(1) }),
+  identity: z.strictObject({ basis: z.enum(['attribute', 'text']), attribute: z.string().nullable() }),
+  fields: z.array(CollectionFieldSchema),
+  /** Items in base order. */
+  items: z.array(CollectionItemSchema),
+  provenance: MeasuredProvenanceSchema,
+});
+export type Collection = z.infer<typeof CollectionSchema>;
+
+/** The collection as one state showed it. */
+export const CollectionViewSchema = z.strictObject({
+  stateId: Id,
+  /** Visible item keys in display order. */
+  keys: z.array(z.string()),
+  /** A message shown while no item is visible. */
+  emptyState: z.strictObject({ nodeId: Id, nodePath: NodePathSchema, text: z.string().nullable() }).nullable(),
+});
+export type CollectionView = z.infer<typeof CollectionViewSchema>;
+
+export const COLLECTION_RULE_KINDS = ['search', 'filter', 'sort', 'reset'] as const;
+
+/**
+ * What one observed transition did to a collection: narrowed it to the items
+ * matching a query (`search`) or a value (`filter`), reordered it (`sort`),
+ * or brought it back to its base view (`reset`). Classified by item identity
+ * against the base items; observed, never inferred.
+ */
+export const CollectionRuleSchema = z.strictObject({
+  id: Id,
+  kind: z.enum(COLLECTION_RULE_KINDS),
+  collectionId: Id,
+  transitionId: Id,
+  control: z.strictObject({
+    target: ActionTargetSchema,
+    kind: z.enum(['searchbox', 'select', 'toggle-button', 'tab', 'sort-header', 'button']),
+    label: z.string().nullable(),
+  }),
+  event: z.strictObject({ type: z.enum(['click', 'fill']), value: z.string().optional() }),
+  before: CollectionViewSchema,
+  after: CollectionViewSchema,
+  search: z
+    .strictObject({
+      query: z.string(),
+      /** `substring`: case-insensitive containment; `word-prefix`: a word starts with the query; `unknown`: no visible text explains the result. */
+      match: z.enum(['substring', 'word-prefix', 'unknown']),
+      /** Fields the query was matched against; empty means all visible text. */
+      fieldIds: z.array(Id),
+      /** True when the match explains both the kept and the removed items. */
+      explainsExcluded: z.boolean(),
+    })
+    .optional(),
+  filter: z
+    .strictObject({
+      predicate: z.discriminatedUnion('op', [
+        z.strictObject({ op: z.literal('equals'), fieldId: Id, value: z.string() }),
+        z.strictObject({ op: z.literal('contains'), fieldId: Id, value: z.string() }),
+        z.strictObject({ op: z.literal('in-keys'), keys: z.array(z.string()) }),
+      ]),
+    })
+    .optional(),
+  sort: z
+    .strictObject({
+      /** Null when no visible field explains the order. */
+      fieldId: Id.nullable(),
+      direction: z.enum(['ascending', 'descending']).nullable(),
+      comparator: z.enum(['number', 'date', 'text']).nullable(),
+      /** `aria-sort` on the control's column header after the action. */
+      ariaSort: z.enum(['ascending', 'descending']).nullable(),
+    })
+    .optional(),
+  provenance: ObservedProvenanceSchema,
+});
+export type CollectionRule = z.infer<typeof CollectionRuleSchema>;
+
+export const CollectionsSchema = z.strictObject({
+  definitions: z.array(CollectionSchema),
+  rules: z.array(CollectionRuleSchema),
+});
+export type Collections = z.infer<typeof CollectionsSchema>;
+
 /* ---------------------------------------------------------------- document */
 
 const SemverPattern = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
@@ -640,6 +840,8 @@ const UiDnaDocumentBase = z.strictObject({
   components: ComponentsSchema,
   visual: VisualSchema,
   behavior: z.array(BehaviorRuleSchema),
+  /** Repeated items and how search, filter and sort controls changed them (0.3.0). */
+  collections: CollectionsSchema.optional(),
   assets: z.array(AssetSchema),
   limitations: z.array(LimitationSchema),
   evidence: z.array(EvidenceRefSchema),
@@ -710,6 +912,82 @@ function checkReferences(doc: z.infer<typeof UiDnaDocumentBase>, ctx: z.Refineme
       if (!stateIds.has(u.stateId)) issue(['assets', i, 'usage', j, 'stateId'], `unknown state ${u.stateId}`);
     });
   });
+
+  const responsive = doc.visual.responsive;
+  if (responsive !== undefined) {
+    const breakpointIds = new Set(responsive.breakpoints.map((b) => b.id));
+    const conditionIds = new Set(responsive.conditions.map((c) => c.id));
+    if (breakpointIds.size !== responsive.breakpoints.length) issue(['visual', 'responsive', 'breakpoints'], 'duplicate breakpoint ids');
+    if (conditionIds.size !== responsive.conditions.length) issue(['visual', 'responsive', 'conditions'], 'duplicate condition ids');
+    responsive.breakpoints.forEach((b, i) => {
+      const path = ['visual', 'responsive', 'breakpoints', i];
+      if (!(b.bracket.lower < b.minWidth && b.minWidth <= b.bracket.upper)) issue([...path, 'bracket'], 'bracket must satisfy lower < minWidth <= upper');
+      b.conditionIds.forEach((id, j) => {
+        if (!conditionIds.has(id)) issue([...path, 'conditionIds', j], `unknown condition ${id}`);
+      });
+      b.pageIds.forEach((id, j) => {
+        if (!pageIds.has(id)) issue([...path, 'pageIds', j], `unknown page ${id}`);
+      });
+    });
+    responsive.conditions.forEach((c, i) => {
+      c.pageIds.forEach((id, j) => {
+        if (!pageIds.has(id)) issue(['visual', 'responsive', 'conditions', i, 'pageIds', j], `unknown page ${id}`);
+      });
+    });
+    responsive.rules.forEach((r, i) => {
+      if (!breakpointIds.has(r.breakpointId)) issue(['visual', 'responsive', 'rules', i, 'breakpointId'], `unknown breakpoint ${r.breakpointId}`);
+      if (!pageIds.has(r.pageId)) issue(['visual', 'responsive', 'rules', i, 'pageId'], `unknown page ${r.pageId}`);
+    });
+    responsive.probes.forEach((p, i) => {
+      if (!pageIds.has(p.pageId)) issue(['visual', 'responsive', 'probes', i, 'pageId'], `unknown page ${p.pageId}`);
+    });
+  }
+
+  const collections = doc.collections;
+  if (collections !== undefined) {
+    const collectionById = new Map(collections.definitions.map((c) => [c.id, c] as const));
+    const transitionById = new Map(doc.states.transitions.map((t) => [t.id, t] as const));
+    if (collectionById.size !== collections.definitions.length) issue(['collections', 'definitions'], 'duplicate collection ids');
+    if (new Set(collections.rules.map((r) => r.id)).size !== collections.rules.length) issue(['collections', 'rules'], 'duplicate collection rule ids');
+    collections.definitions.forEach((c, i) => {
+      const path = ['collections', 'definitions', i];
+      if (!pageIds.has(c.pageId)) issue([...path, 'pageId'], `unknown page ${c.pageId}`);
+      if (!stateIds.has(c.stateId)) issue([...path, 'stateId'], `unknown state ${c.stateId}`);
+      const fieldIds = new Set(c.fields.map((f) => f.id));
+      if (fieldIds.size !== c.fields.length) issue([...path, 'fields'], 'duplicate field ids');
+      if (new Set(c.items.map((item) => item.key)).size !== c.items.length) issue([...path, 'items'], 'duplicate item keys');
+      c.items.forEach((item, j) => {
+        for (const fieldId of Object.keys(item.values)) {
+          if (!fieldIds.has(fieldId)) issue([...path, 'items', j, 'values', fieldId], `unknown field ${fieldId}`);
+        }
+      });
+    });
+    collections.rules.forEach((r, i) => {
+      const path = ['collections', 'rules', i];
+      const collection = collectionById.get(r.collectionId);
+      if (collection === undefined) issue([...path, 'collectionId'], `unknown collection ${r.collectionId}`);
+      const transition = transitionById.get(r.transitionId);
+      if (transition === undefined) {
+        issue([...path, 'transitionId'], `unknown transition ${r.transitionId}`);
+      } else {
+        if (r.before.stateId !== transition.from) issue([...path, 'before', 'stateId'], 'before.stateId must be the transition\'s from-state');
+        if (r.after.stateId !== transition.to) issue([...path, 'after', 'stateId'], 'after.stateId must be the transition\'s to-state');
+      }
+      const bodies = { search: r.search !== undefined, filter: r.filter !== undefined, sort: r.sort !== undefined };
+      for (const [kind, present] of Object.entries(bodies)) {
+        if (present !== (r.kind === kind)) issue([...path, kind], present ? `a ${r.kind} rule carries no ${kind} body` : `a ${kind} rule needs its ${kind} body`);
+      }
+      if (collection !== undefined) {
+        const fieldIds = new Set(collection.fields.map((f) => f.id));
+        const used = [
+          ...(r.search?.fieldIds ?? []),
+          ...(r.filter !== undefined && r.filter.predicate.op !== 'in-keys' ? [r.filter.predicate.fieldId] : []),
+          ...(r.sort?.fieldId !== undefined && r.sort.fieldId !== null ? [r.sort.fieldId] : []),
+        ];
+        for (const fieldId of used) if (!fieldIds.has(fieldId)) issue(path, `unknown field ${fieldId} of collection ${collection.id}`);
+      }
+    });
+  }
 }
 
 /** The UI DNA document, structurally and referentially validated. */

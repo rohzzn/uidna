@@ -44,7 +44,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@rohzzn/uidna-schema": "^0.2.0",
+    "@rohzzn/uidna-schema": "^0.3.0",
     "commander": "^15.0.0",
     "pixelmatch": "^8.0.0",
     "playwright": "^1.64.0",

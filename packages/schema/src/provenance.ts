@@ -16,6 +16,7 @@ export const PROVENANCE_SOURCES = [
   'screenshot',
   'interaction',
   'network',
+  'stylesheet',
   'agent',
 ] as const;
 
@@ -27,6 +28,7 @@ export const INSTRUMENT_SOURCES = [
   'screenshot',
   'interaction',
   'network',
+  'stylesheet',
 ] as const;
 
 /** Viewport size in CSS pixels. */
