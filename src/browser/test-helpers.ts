@@ -97,6 +97,14 @@ export async function serveFixtureC(): Promise<StaticServer> {
   return unwrap(await serveStatic(FIXTURE_C_DIR, { fixtureApi: true }), 'serve Fixture C');
 }
 
+/** Fixture B: an orders dashboard with search, status chips, sortable columns and breakpoints at 600, 960 and 1100px. */
+export const FIXTURE_B_DIR = fileURLToPath(new URL('../../fixtures/b-dashboard/', import.meta.url));
+
+/** Serve Fixture B. */
+export function serveFixtureB(): Promise<StaticServer> {
+  return serveDir(FIXTURE_B_DIR);
+}
+
 /** Serve Fixture D. */
 export function serveFixtureD(): Promise<StaticServer> {
   return serveDir(FIXTURE_D_DIR);

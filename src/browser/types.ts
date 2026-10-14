@@ -4,6 +4,7 @@
  * over CDP (authorized authenticated sessions). Everything above the browser
  * layer (explore, verify, workflows) programs against these types only.
  */
+import type { LayoutSignatureReading, StyleConditions } from './responsive.js';
 import type { RoleTreeNode, UiNode, Viewport } from '@rohzzn/uidna-schema';
 import type { Result } from '../domain/result.js';
 
@@ -231,6 +232,14 @@ export interface BrowserSession {
   waitForStability(options?: StabilityOptions): Promise<Result<StabilityOutcome>>;
   /** Freeze animations, transitions, carets and smooth scrolling for deterministic screenshots. */
   stabilize(): Promise<Result<void>>;
+  /**
+   * The layout signature of the current document (see `SIGNATURE_PROPERTIES` in
+   * src/domain/responsive.ts), keyed by node path, or by `keyAttribute` when given.
+   * Read-only: never acts on the page.
+   */
+  layoutSignature(options?: { readonly keyAttribute?: string; readonly maxNodes?: number }): Promise<Result<LayoutSignatureReading>>;
+  /** Width conditions of the page's readable stylesheets with the nodes their rules match. Read-only. */
+  readStyleConditions(): Promise<Result<StyleConditions>>;
   /** Network entries recorded since `marker` (from `markNetwork`), or all when omitted. */
   networkSince(marker?: string): readonly NetworkEntry[];
   /** Create a marker for `networkSince`. */

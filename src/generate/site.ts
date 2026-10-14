@@ -8,7 +8,7 @@ import type { Page, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
 import { uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { compareStrings, pascalCase } from './jsx.js';
-import { buildPageModel, siteBreakpoints, splitLandmarks, type GenerationModel } from './model.js';
+import { buildPageModel, planBreakpoints, splitLandmarks, type BreakpointPlan, type GenerationModel } from './model.js';
 
 /** How pages are wired in the generated project. */
 export type RouterMode = 'none' | 'react-router';
@@ -58,6 +58,8 @@ export interface SitePlan {
   readonly routeByPageId: ReadonlyMap<string, string>;
   /** Breakpoint name per base-state width, shared by every page. */
   readonly breakpoints: ReadonlyMap<number, string | null>;
+  /** The site-wide breakpoint plan (see `planBreakpoints`). */
+  readonly plan: BreakpointPlan;
   /** What was left out or derived, for the README. */
   readonly notes: readonly string[];
 }
@@ -193,15 +195,16 @@ export function planSite(dna: UiDnaDocument, router: RouterMode | undefined, use
     routed.push(page);
   }
 
-  const breakpoints = siteBreakpoints(
+  const plan = planBreakpoints(
     dna,
     routed.map((p) => p.id),
   );
+  const breakpoints = new Map(plan.nameAt);
 
   // Models first: layouts can only hoist landmarks that are direct children of <body> on the source page.
   const modelByPage = new Map<string, GenerationModel>();
   for (const page of routed) {
-    const model = buildPageModel(dna, page, mode === 'react-router' ? breakpoints : undefined);
+    const model = buildPageModel(dna, page, mode === 'react-router' ? plan : undefined);
     if (!model.ok) return model;
     modelByPage.set(page.id, model.value);
   }
@@ -275,7 +278,7 @@ export function planSite(dna: UiDnaDocument, router: RouterMode | undefined, use
       layout: layoutByPage.get(page.id) ?? null,
     });
   }
-  return ok({ router: mode, pages, layouts, routeByPageId, breakpoints, notes });
+  return ok({ router: mode, pages, layouts, routeByPageId, breakpoints, plan, notes });
 }
 
 /**

@@ -51,7 +51,8 @@ beforeAll(async () => {
   scan = unwrap(await ctx.store.loadScan(scanned.result.scanId), 'load scan');
   captures = unwrap(await ctx.store.loadAllCaptures(scan.scanId, scan), 'load captures');
   stored = unwrap(await ctx.store.loadDna(scan.scanId), 'load dna');
-  const assembled = assembleDna({ scan, captures, toolVersion: '0.1.0' });
+  const responsive = unwrap(await ctx.store.loadResponsive(scan.scanId), 'load responsive');
+  const assembled = assembleDna({ scan, captures, responsive, toolVersion: '0.1.0' });
   if (!assembled.ok) throw new Error(assembled.error.message);
   doc = assembled.value;
 });

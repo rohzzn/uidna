@@ -36,7 +36,8 @@ import type {
 } from '@rohzzn/uidna-schema';
 import { formatIssues, LimitationSchema, measured, UI_DNA_VERSION, unknown, validateUiDna } from '@rohzzn/uidna-schema';
 import type { CapturedAsset, CapturedState } from '../browser/types.js';
-import type { ExploreRecord, ScanRecord, StateRecord } from '../application/records.js';
+import type { ExploreRecord, ResponsiveRecord, ScanRecord, StateRecord } from '../application/records.js';
+import { assembleResponsive } from './responsive.js';
 import { isoNow, systemClock, type Clock } from '../domain/clock.js';
 import { stableStringify } from '../domain/digest.js';
 import { uidnaError } from '../domain/errors.js';
@@ -59,6 +60,8 @@ export interface AssembleInput {
   readonly explore?: ExploreRecord | null;
   /** The previous version of the document, whose agent work is carried over. */
   readonly previous?: UiDnaDocument | null;
+  /** Stylesheet conditions and probe results (`responsive.json`); absent for scans without responsive measurement. */
+  readonly responsive?: ResponsiveRecord | null;
   readonly toolVersion: string;
   /** Only used to timestamp `scannedAt` when the scan record carries no usable time. */
   readonly clock?: Clock;
@@ -837,6 +840,20 @@ export function assembleDna(input: AssembleInput): Result<UiDnaDocument> {
   const components = withPageIds(findComponents(baseCaptures.size > 0 ? baseCaptures : orderedCaptures, { minInstances: 2, capturedAt, evidenceIdByState: evidence }), pages);
   const layoutConstraints = computeLayout(baseCaptures.size > 0 ? baseCaptures : orderedCaptures, { evidenceIdByState: evidence });
   const behavior = carryInferredBehavior(deriveBehavior(states, transitions), previous, new Set(transitions.map((t) => t.id)));
+  const responsive =
+    input.responsive === undefined || input.responsive === null
+      ? null
+      : assembleResponsive(
+          input.responsive,
+          pages.map((page) => ({
+            id: page.id,
+            bases: page.states
+              .filter((s) => s.record.kind === 'base')
+              .map((s) => ({ stateId: s.record.stateId, width: s.record.viewport.width, capture: s.capture }))
+              .sort((a, b) => a.width - b.width),
+          })),
+          capturedAt,
+        );
   const assets = buildAssets(ordered, pageByState, previous, evidence, capturedAt);
 
   const scannedAt = scan.steps.scan?.at ?? (isIsoDateTime(scan.createdAt) ? scan.createdAt : isoNow(clock));
@@ -879,10 +896,11 @@ export function assembleDna(input: AssembleInput): Result<UiDnaDocument> {
           }
         : tokens,
       layout: layoutConstraints,
+      ...(responsive === null ? {} : { responsive: responsive.responsive }),
     },
     behavior,
     assets,
-    limitations: dedupeLimitations([...limitations, ...captureLimitations(ordered, pageByState, evidence), ...assetLimitations(assets), ...agentLimitations(previous)]),
+    limitations: dedupeLimitations([...limitations, ...(responsive?.limitations ?? []), ...captureLimitations(ordered, pageByState, evidence), ...assetLimitations(assets), ...agentLimitations(previous)]),
     evidence: buildEvidence(ordered),
     annotations,
   };

@@ -47,11 +47,12 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 | `headless` | boolean | no | Launch mode only. Default true. |
 | `crawl` | object | no | Breadth-first crawl of same-origin links discovered on captured pages. Cross-origin links are recorded, never followed. |
 | `captureBodies` | "none" \| "json" | no | Store JSON response bodies of XHR/fetch requests as data assets (redacted, size-capped). Default none. |
+| `responsive` | object | no | Responsive-rule inference: where between and around the scanned widths the layout changes, and which stylesheet condition explains it. |
 | `outRoot` | string | no | Directory that holds scans. Default ./.uidna |
 
 **Result fields**
 
-`scanId`, `scanDir`, `target`, `pages`, `states`, `assets`, `budget`, `dnaPath`
+`scanId`, `scanDir`, `target`, `pages`, `states`, `breakpoints`, `assets`, `budget`, `dnaPath`
 
 ### `explore_interactions`
 
@@ -233,7 +234,7 @@ Effects: writes artifacts, non-destructive, not idempotent, local only. Long-run
 
 **Result fields**
 
-`id`, `scanId`, `outDir`, `attempt`, `createdAt`, `thresholds`, `summary`, `visual`, `behavioral`, `regressions`, `resolved`, `previousAttempt`, `limitations`, `unknowns`, `artifacts`
+`id`, `scanId`, `outDir`, `attempt`, `createdAt`, `thresholds`, `summary`, `visual`, `behavioral`, `responsive`, `regressions`, `resolved`, `previousAttempt`, `limitations`, `unknowns`, `artifacts`
 
 ### `report_reconstruction`
 
@@ -295,6 +296,7 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 | `budget` | object | no | Per-scan budget. Exhaustion ends the step with partial artifacts and a diagnostic. |
 | `crawl` | object | no | Breadth-first crawl of same-origin links discovered on captured pages. Cross-origin links are recorded, never followed. |
 | `captureBodies` | "none" \| "json" | no | Store JSON response bodies of XHR/fetch requests as data assets (redacted, size-capped); the generator turns them into typed mocks. Default none. |
+| `responsive` | object | no | Responsive-rule inference: where between and around the scanned widths the layout changes, and which stylesheet condition explains it. |
 | `policy` | "safe" \| "forms" | no | Exploration policy: "safe" never touches forms, "forms" fills and submits them with synthetic values, every submission request blocked. Default safe. |
 | `explore` | boolean | no | Run exploration. Default true. |
 | `install` | boolean | no | Run npm install in the generated project. Default true. |

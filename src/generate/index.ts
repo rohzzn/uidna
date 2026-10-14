@@ -334,7 +334,7 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
   files.set('src/index.css', renderIndexCss());
   // Multi-page projects declare the breakpoints of every page, not only the seed page's: a page captured
   // at a width the seed lacks would otherwise emit `md:` utilities Tailwind drops.
-  files.set('src/styles/tokens.css', renderTokensCss(tokens, ctx.model, dna.target.scanId, multi ? site.breakpoints : undefined));
+  files.set('src/styles/tokens.css', renderTokensCss(tokens, ctx.model, dna.target.scanId, multi ? site.plan : ctx.model.breakpoints));
   files.set('.gitignore', renderGitignore());
 
   const assets = registry ?? ctx.assets;

@@ -137,7 +137,8 @@ describe('verifyReconstruction on Fixture A', () => {
       }
       expect(report.summary.states).toBe(2);
       expect(report.summary.transitions).toBe(0);
-      expect(report.summary.findings).toBe(report.visual.reduce((n, v) => n + v.findings.length, 0));
+      const responsiveFindings = (report.responsive ?? []).flatMap((r) => r.findings);
+      expect(report.summary.findings).toBe(report.visual.reduce((n, v) => n + v.findings.length, 0) + responsiveFindings.length);
       expect(report.regressions).toEqual([]);
       expect(report.resolved).toEqual([]);
       expect(report.artifacts.length).toBeGreaterThanOrEqual(7);

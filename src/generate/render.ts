@@ -232,7 +232,7 @@ function renderNode(gn: GenNode, ctx: RenderContext, scope: ScopeState): JsxChil
   const behavior = ctx.behavior.byPath.get(gn.path);
   const binding = scope.component?.bindings.get(gn.path);
   const variantNode = scope.component?.variants?.nodes.get(gn.path);
-  const breakpoints = ctx.model.slots.map((s) => s.breakpoint).filter((b): b is string => b !== null);
+  const breakpoints = ctx.model.breakpoints.ordered.map((b) => b.name);
 
   let resolution: AssetResolution | null = null;
   const tag = gn.node.tag.toLowerCase();
@@ -663,7 +663,7 @@ export function renderRouterApp(site: SitePlan, scanId: string): RenderedFile {
 
 /** Classes for the `<body>` element (its own computed style, rendered in index.html). */
 export function bodyClasses(ctx: RenderContext): string[] {
-  const breakpoints = ctx.model.slots.map((s) => s.breakpoint).filter((b): b is string => b !== null);
+  const breakpoints = ctx.model.breakpoints.ordered.map((b) => b.name);
   return orderClasses(ctx.classesOf(ctx.model.body).classes, breakpoints);
 }
 

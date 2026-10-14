@@ -118,6 +118,22 @@ export const BoxMatchSchema = z.strictObject({
 });
 
 /** The complete verification result for one attempt. */
+/** The generated app checked on both sides of one located breakpoint. */
+export const ResponsiveComparisonSchema = z.strictObject({
+  pageId: z.string().min(1),
+  breakpointId: z.string().min(1),
+  minWidth: z.number().int().positive(),
+  source: z.enum(['css', 'probe']),
+  /** The bracket widths at which both apps were compared. */
+  widths: z.strictObject({ lower: z.number().int().positive(), upper: z.number().int().positive() }),
+  /** Layout values the original takes on either side (from the probe), compared one by one. */
+  checked: z.number().int().min(0),
+  matched: z.number().int().min(0),
+  findings: z.array(FindingSchema),
+  limitations: z.array(z.string()),
+});
+export type ResponsiveComparison = z.infer<typeof ResponsiveComparisonSchema>;
+
 export const DiffReportSchema = z.strictObject({
   id: z.string().min(1),
   scanId: z.string().min(1),
@@ -142,9 +158,13 @@ export const DiffReportSchema = z.strictObject({
     bySeverity: z.record(z.enum(FINDING_SEVERITIES), z.number().int().min(0)),
     transitionsReplayed: z.number().int().min(0),
     transitionsMatched: z.number().int().min(0),
+    /** Located breakpoints checked on both sides, and how many matched (absent before 0.3.0). */
+    breakpoints: z.strictObject({ checked: z.number().int().min(0), matched: z.number().int().min(0) }).optional(),
   }),
   visual: z.array(VisualComparisonSchema),
   behavioral: z.array(BehaviorComparisonSchema),
+  /** Breakpoint checks (absent before 0.3.0 or without probe data). */
+  responsive: z.array(ResponsiveComparisonSchema).optional(),
   /** Findings present now that were absent in the previous attempt. Empty on the first attempt. */
   regressions: z.array(FindingSchema),
   /** Findings present in the previous attempt that are gone now. */

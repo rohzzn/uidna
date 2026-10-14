@@ -447,16 +447,48 @@ export function responsiveClasses(gn: GenNode, model: GenerationModel, tokens: T
   });
   const classes: string[] = [];
   const skipped: SkippedProperty[] = [];
-  let previous: StateEmission | null = null;
+  let previous: { emission: StateEmission; width: number } | null = null;
   for (let i = 0; i < emissions.length; i += 1) {
     const emission = emissions[i];
     const slot = model.slots[i];
     if (emission === null || emission === undefined || slot === undefined) continue;
-    const prefix = slot.breakpoint === null ? '' : `${slot.breakpoint}:`;
-    const result = previous === null ? emissionClasses(emission, tokens, prefix) : transitionClasses(previous, emission, tokens, prefix);
+    const result =
+      previous === null
+        ? emissionClasses(emission, tokens, slot.breakpoint === null ? '' : `${slot.breakpoint}:`)
+        : attributedTransitionClasses(previous.emission, emission, tokens, (property) => `${model.breakpoints.attribute(model.pageId, gn.path, property, previous?.width ?? 0, slot.width).name}:`);
     classes.push(...result.classes);
     skipped.push(...result.skipped);
-    previous = emission;
+    previous = { emission, width: slot.width };
   }
   return { classes, skipped, emissions };
+}
+
+/**
+ * Like `transitionClasses`, but each changed property gets the prefix of the
+ * breakpoint it is attributed to (`prefixOf`), so a change between two
+ * scanned widths lands at the breakpoint the scan located for it.
+ */
+export function attributedTransitionClasses(from: StateEmission, to: StateEmission, tokens: TokenIndex, prefixOf: (property: string) => string): { classes: string[]; skipped: SkippedProperty[] } {
+  const groups = new Map<string, { node: Map<string, string>; before: Map<string, string>; after: Map<string, string> }>();
+  const group = (prefix: string): { node: Map<string, string>; before: Map<string, string>; after: Map<string, string> } => {
+    let entry = groups.get(prefix);
+    if (entry === undefined) {
+      entry = { node: new Map(), before: new Map(), after: new Map() };
+      groups.set(prefix, entry);
+    }
+    return entry;
+  };
+  for (const [property, value] of emissionDiff(from.node, to.node, to.style, to.hidden)) group(prefixOf(property)).node.set(property, value);
+  for (const [property, value] of emissionDiff(from.before, to.before, to.beforeStyle)) group(prefixOf(property)).before.set(property, value);
+  for (const [property, value] of emissionDiff(from.after, to.after, to.afterStyle)) group(prefixOf(property)).after.set(property, value);
+  const classes: string[] = [];
+  const skipped: SkippedProperty[] = [];
+  for (const [prefix, entry] of groups) {
+    const node = classesForEmission(to.style, entry.node, tokens, prefix);
+    const before = classesForEmission(to.beforeStyle, entry.before, tokens, `${prefix}before:`);
+    const after = classesForEmission(to.afterStyle, entry.after, tokens, `${prefix}after:`);
+    classes.push(...node.classes, ...before.classes, ...after.classes);
+    skipped.push(...node.skipped, ...before.skipped, ...after.skipped);
+  }
+  return { classes: classes.sort(compareClasses), skipped };
 }

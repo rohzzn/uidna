@@ -12,6 +12,7 @@
  * comparison that could not be made is reported as a limitation or an
  * unknown, never silently skipped.
  */
+import { compareBreakpointSides } from './responsive.js';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
@@ -21,7 +22,7 @@ import type { ScanRecord } from '../application/records.js';
 import { openSession, pageKey } from '../application/scan.js';
 import { serveStatic, type StaticServer } from '../application/static-server.js';
 import type { ActionLocator, BrowserSession, UiAction } from '../browser/types.js';
-import { BoxMatchSchema, type BehaviorComparison, type DiffReport, type Finding, type FindingCategory, type FindingSeverity, type VisualComparison } from '../contracts/diff-report.js';
+import { BoxMatchSchema, type BehaviorComparison, type DiffReport, type Finding, type FindingCategory, type FindingSeverity, type ResponsiveComparison, type VisualComparison } from '../contracts/diff-report.js';
 import { isoNow } from '../domain/clock.js';
 import { describeError, toError, uidnaError } from '../domain/errors.js';
 import { err, ok, tryCatch, type Result } from '../domain/result.js';
@@ -331,6 +332,101 @@ async function readGeneratedRoutes(outDir: string, dna: UiDnaDocument, scanId: s
     return { routes: generatedRoutesFromDocument(dna), foreignScanId };
   }
   return { routes: routes.value, foreignScanId };
+}
+
+/* ------------------------------------------------------------ breakpoints */
+
+/**
+ * Check the generated app on both sides of every located breakpoint the probe
+ * read: load the page's route at the bracket widths and compare the layout
+ * values the breakpoint's rules record (rendered, display, position, flex
+ * direction, float, grid tracks) with the original's at the same widths.
+ */
+async function checkBreakpoints(run: Run): Promise<ResponsiveComparison[]> {
+  const responsive = run.dna.visual.responsive;
+  if (responsive === undefined || responsive.breakpoints.length === 0) return [];
+  const record = await run.ctx.store.loadResponsive(run.scan.scanId);
+  if (!record.ok) {
+    run.limitations.push(`breakpoints were not checked: responsive.json could not be read (${describeError(record.error)})`);
+    return [];
+  }
+  if (record.value === null) return [];
+  const comparisons: ResponsiveComparison[] = [];
+  const bases = run.dna.states.items.filter((s) => s.kind === 'base');
+  for (const bp of [...responsive.breakpoints].sort((a, b) => a.minWidth - b.minWidth)) {
+    for (const pageId of bp.pageIds) {
+      const probe = record.value.pages[pageId]?.probe ?? null;
+      const originalLower = probe?.signatures[String(bp.bracket.lower)];
+      const originalUpper = probe?.signatures[String(bp.bracket.upper)];
+      const rules = responsive.rules.filter((r) => r.breakpointId === bp.id && r.pageId === pageId);
+      if (probe === null || originalLower === undefined || originalUpper === undefined || rules.length === 0) continue;
+      if (pageNotGenerated(run.routes, pageId)) continue;
+      const pageBases = bases.filter((s) => s.pageId === pageId).sort((a, b) => a.viewport.width - b.viewport.width);
+      const sideState = (width: number, side: 'lower' | 'upper'): UiState | undefined =>
+        side === 'lower' ? ([...pageBases].reverse().find((s) => s.viewport.width <= width) ?? pageBases[0]) : (pageBases.find((s) => s.viewport.width >= width) ?? pageBases[pageBases.length - 1]);
+      const limitations: string[] = [];
+      const generated: Record<'lower' | 'upper', Record<string, string>> = { lower: {}, upper: {} };
+      let loaded = true;
+      for (const side of ['lower', 'upper'] as const) {
+        const width = bp.bracket[side];
+        const state = sideState(width, side);
+        if (state === undefined) {
+          loaded = false;
+          break;
+        }
+        const ready = await loadState(run, { ...state, viewport: { width, height: probe.height } }, limitations);
+        if (!ready.ok) {
+          limitations.push(`the generated page could not be loaded at ${width}px (${describeError(ready.error)})`);
+          loaded = false;
+          break;
+        }
+        const signature = await run.session.layoutSignature({ keyAttribute: 'data-uidna-path' });
+        if (!signature.ok) {
+          limitations.push(`the generated layout could not be read at ${width}px (${describeError(signature.error)})`);
+          loaded = false;
+          break;
+        }
+        generated[side] = signature.value.entries;
+      }
+      const findings: Finding[] = [];
+      let checked = 0;
+      if (loaded) {
+        const compared = compareBreakpointSides({ rules, widths: bp.bracket, original: { lower: originalLower, upper: originalUpper }, generated });
+        checked = compared.checked;
+        for (const mismatch of compared.mismatches) {
+          const state = sideState(mismatch.width, mismatch.side);
+          if (state === undefined) continue;
+          findings.push(
+            makeFinding(run, {
+              category: 'responsive',
+              severity: mismatch.property === 'rendered' || mismatch.property === 'display' ? 'high' : 'medium',
+              stateId: state.id,
+              viewport: { width: mismatch.width, height: probe.height },
+              property: `${mismatch.property}@${mismatch.width}px`,
+              node: state.nodes.find((n) => n.path === mismatch.path) ?? null,
+              original: mismatch.original,
+              generated: mismatch.generated,
+              delta: null,
+              message: `at ${mismatch.width}px (${mismatch.side === 'lower' ? 'below' : 'at'} the ${bp.minWidth}px breakpoint, ${bp.source === 'css' ? 'stylesheet' : 'probe'}) the original's ${mismatch.property} of ${mismatch.path || 'body'} is ${mismatch.original}; the generated app's is ${mismatch.generated}`,
+              evidence: ['responsive.json'],
+            }),
+          );
+        }
+      }
+      comparisons.push({
+        pageId,
+        breakpointId: bp.id,
+        minWidth: bp.minWidth,
+        source: bp.source,
+        widths: { ...bp.bracket },
+        checked,
+        matched: checked - findings.length,
+        findings,
+        limitations,
+      });
+    }
+  }
+  return comparisons;
 }
 
 /* ---------------------------------------------------------------- pixels */
@@ -1416,6 +1512,7 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
 
   const outcomes: StateOutcome[] = [];
   const behavioral: BehaviorComparison[] = [];
+  const responsiveComparisons: ResponsiveComparison[] = [];
   let generatedTests: GeneratedTestRun | null = null;
   let cancelled = false;
   try {
@@ -1428,6 +1525,10 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
       outcomes.push(await compareState(run, state));
     }
     if (!cancelled) crossViewportFindings(run, outcomes);
+    if (!cancelled && ctx.signal?.aborted !== true) {
+      progress('checking the located breakpoints');
+      responsiveComparisons.push(...(await checkBreakpoints(run)));
+    }
     for (const transition of transitions) {
       if (cancelled || ctx.signal?.aborted === true) {
         cancelled = true;
@@ -1474,7 +1575,7 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
 
   progress('writing the diff report');
   const visual = outcomes.map((o) => o.comparison);
-  const findings = [...visual.flatMap((v) => v.findings), ...behavioral.flatMap((b) => b.findings)];
+  const findings = [...visual.flatMap((v) => v.findings), ...behavioral.flatMap((b) => b.findings), ...responsiveComparisons.flatMap((r) => r.findings)];
   const counts = countFindings(findings);
   const previous = input.previous;
   const attemptDiff = diffAttempts(previous, findings);
@@ -1494,9 +1595,11 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
       bySeverity: counts.bySeverity,
       transitionsReplayed: behavioral.filter((b) => b.replayed).length,
       transitionsMatched: behavioral.filter((b) => b.roleTreeMatch === true).length,
+      ...(responsiveComparisons.length === 0 ? {} : { breakpoints: { checked: responsiveComparisons.length, matched: responsiveComparisons.filter((r) => r.findings.length === 0 && r.limitations.length === 0).length } }),
     },
     visual,
     behavioral,
+    ...(responsiveComparisons.length === 0 ? {} : { responsive: responsiveComparisons }),
     regressions: attemptDiff.regressions,
     resolved: attemptDiff.resolved,
     previousAttempt: previous === null ? null : previous.attempt,

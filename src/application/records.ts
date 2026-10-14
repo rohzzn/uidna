@@ -165,6 +165,64 @@ export const ExploreRecordSchema = z.strictObject({
 });
 export type ExploreRecord = z.infer<typeof ExploreRecordSchema>;
 
+/** A stylesheet width condition as read on one page, with what the parser made of it. */
+export const ResponsiveConditionRecordSchema = z.strictObject({
+  text: z.string(),
+  kind: z.enum(['media', 'import', 'link-media']),
+  sheet: z.strictObject({ url: z.string().nullable(), origin: z.enum(['same-origin', 'cross-origin', 'inline']) }),
+  ruleCount: z.number().int().min(0),
+  /** Nodes (by path) the condition's rules match, with the properties they declare. */
+  targets: z.array(z.strictObject({ path: z.string(), properties: z.array(z.string()) })),
+  thresholds: z.array(z.number().int().positive()),
+  never: z.boolean(),
+  unsupported: z.array(z.string()),
+});
+export type ResponsiveConditionRecord = z.infer<typeof ResponsiveConditionRecordSchema>;
+
+const SignatureChangeRecordSchema = z.strictObject({ path: z.string(), property: z.string(), below: z.string().nullable(), above: z.string().nullable() });
+
+/** What responsive measurement did on one page. */
+export const PageResponsiveRecordSchema = z.strictObject({
+  pageId: z.string(),
+  conditions: z.array(ResponsiveConditionRecordSchema),
+  /** Stylesheets that could not be read (cross-origin). */
+  unreadable: z.array(z.string()),
+  containerRules: z.number().int().min(0),
+  emPx: z.number().positive(),
+  /** Null when probing was off or fewer than two widths were scanned. */
+  probe: z
+    .strictObject({
+      height: z.number().int().positive(),
+      maxProbes: z.number().int().min(0),
+      widths: z.array(z.number().int().positive()),
+      exhausted: z.boolean(),
+      blockedRequests: z.number().int().min(0),
+      failures: z.array(z.string()),
+      changePoints: z.array(z.strictObject({ lower: z.number().int().positive(), upper: z.number().int().positive(), changes: z.array(SignatureChangeRecordSchema) })),
+      /** Full signatures at both sides of every change point, for the verifier: width → key → value. */
+      signatures: z.record(z.string(), z.record(z.string(), z.string())),
+    })
+    .nullable(),
+  limitations: z.array(z.string()),
+});
+export type PageResponsiveRecord = z.infer<typeof PageResponsiveRecordSchema>;
+
+/** `responsive.json`: stylesheet conditions and probe results per page. */
+export const ResponsiveRecordSchema = z.strictObject({
+  scanId: z.string(),
+  evidenceId: z.string(),
+  options: z.strictObject({
+    css: z.boolean(),
+    probe: z.boolean(),
+    maxProbes: z.number().int().min(0),
+    tolerancePx: z.number().int().positive(),
+    height: z.number().int().positive(),
+    settleMs: z.number().int().min(0),
+  }),
+  pages: z.record(z.string(), PageResponsiveRecordSchema),
+});
+export type ResponsiveRecord = z.infer<typeof ResponsiveRecordSchema>;
+
 export const GenerateRecordSchema = z.strictObject({
   scanId: z.string(),
   outDir: z.string(),

@@ -91,6 +91,27 @@ export const CrawlInputSchema = z
   })
   .describe('Breadth-first crawl of same-origin links discovered on captured pages. Cross-origin links are recorded, never followed.');
 
+export const ResponsiveInputSchema = z
+  .object({
+    css: z.boolean().optional().describe('Read @media conditions from the page stylesheets (inline and same-origin; cross-origin sheets are reported as unreadable). Default true.'),
+    probe: z.boolean().optional().describe('Resize between the scanned widths to locate where the layout changes. Resize only: no clicks, keys or scrolling; every non-GET request is blocked while probing. Default true.'),
+    maxProbes: z.number().int().min(0).max(200).optional().describe('Widths measured per page, scanned widths included. Default 32.'),
+    tolerancePx: z.number().int().min(1).max(64).optional().describe('Bisection stops at this precision; leftover budget refines to 1px. Stylesheet thresholds are confirmed to 1px. Default 8.'),
+    height: z.number().int().min(200).max(2160).optional().describe('Viewport height held constant while probing. Default 800.'),
+    settleMs: z.number().int().min(0).max(5000).optional().describe('DOM quiet time after each resize. Default 300.'),
+  })
+  .describe('Responsive-rule inference: where between and around the scanned widths the layout changes, and which stylesheet condition explains it.');
+
+/** A located breakpoint as tools report it. */
+export const BreakpointSummarySchema = z.strictObject({
+  minWidth: z.number().int().positive(),
+  source: z.enum(['css', 'probe']),
+  bracket: z.strictObject({ lower: z.number().int().positive(), upper: z.number().int().positive() }),
+  conditions: z.array(z.string()),
+  pageIds: z.array(z.string()),
+  rules: z.number().int().min(0),
+});
+
 export const StateSummarySchema = z.strictObject({
   stateId: z.string(),
   pageId: z.string(),
@@ -150,6 +171,7 @@ export const scanInterface = defineTool({
     headless: z.boolean().optional().describe('Launch mode only. Default true.'),
     crawl: CrawlInputSchema.optional(),
     captureBodies: z.enum(['none', 'json']).optional().describe('Store JSON response bodies of XHR/fetch requests as data assets (redacted, size-capped). Default none.'),
+    responsive: ResponsiveInputSchema.optional(),
     outRoot: z.string().optional().describe('Directory that holds scans. Default ./.uidna'),
   }),
   output: z.strictObject({
@@ -158,6 +180,8 @@ export const scanInterface = defineTool({
     target: z.strictObject({ kind: z.enum(['url', 'cdp']), url: z.string() }),
     pages: z.array(PageSummarySchema),
     states: z.array(StateSummarySchema),
+    /** Breakpoints located by stylesheet and probing, ascending. */
+    breakpoints: z.array(BreakpointSummarySchema),
     assets: z.strictObject({
       count: z.number().int().min(0),
       byKind: z.record(z.string(), z.number().int().min(0)),
@@ -545,6 +569,7 @@ export const reconstructInterface = defineTool({
     budget: BudgetInputSchema.optional(),
     crawl: CrawlInputSchema.optional(),
     captureBodies: z.enum(['none', 'json']).optional().describe('Store JSON response bodies of XHR/fetch requests as data assets (redacted, size-capped); the generator turns them into typed mocks. Default none.'),
+    responsive: ResponsiveInputSchema.optional(),
     policy: z.enum(['safe', 'forms']).optional().describe('Exploration policy: "safe" never touches forms, "forms" fills and submits them with synthetic values, every submission request blocked. Default safe.'),
     explore: z.boolean().optional().describe('Run exploration. Default true.'),
     install: z.boolean().optional().describe('Run npm install in the generated project. Default true.'),

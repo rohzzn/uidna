@@ -17,6 +17,7 @@
  * for the beacons and keepalive requests of a document being unloaded, which
  * Playwright neither reports nor routes.
  */
+import { readLayoutSignature, readStyleConditions, type LayoutSignatureReading, type StyleConditions } from './responsive.js';
 import { randomBytes } from 'node:crypto';
 import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, Locator, Page, Request, Route } from 'playwright';
 import type { Viewport } from '@rohzzn/uidna-schema';
@@ -235,6 +236,18 @@ export class PlaywrightSession implements BrowserSession {
     } catch (cause) {
       return err(toError(cause, 'browser', 'Viewport could not be set'));
     }
+  }
+
+  /** @inheritdoc */
+  async layoutSignature(options: { readonly keyAttribute?: string; readonly maxNodes?: number } = {}): Promise<Result<LayoutSignatureReading>> {
+    if (this.closed) return err(uidnaError('browser', 'Session is closed'));
+    return readLayoutSignature(this.page, options);
+  }
+
+  /** @inheritdoc */
+  async readStyleConditions(): Promise<Result<StyleConditions>> {
+    if (this.closed) return err(uidnaError('browser', 'Session is closed'));
+    return readStyleConditions(this.page);
   }
 
   /** @inheritdoc */

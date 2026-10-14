@@ -18,9 +18,9 @@ export function findingKey(finding: Pick<Finding, 'category' | 'stateId' | 'node
   return `${finding.category}|${finding.stateId}|${finding.transitionId ?? finding.nodePath ?? '-'}|${finding.property}`;
 }
 
-/** Every finding of a report (visual and behavioral), in report order. */
-export function allFindings(report: Pick<DiffReport, 'visual' | 'behavioral'>): Finding[] {
-  return [...report.visual.flatMap((v) => v.findings), ...report.behavioral.flatMap((b) => b.findings)];
+/** Every finding of a report (visual, behavioral and responsive), in report order. */
+export function allFindings(report: Pick<DiffReport, 'visual' | 'behavioral'> & { readonly responsive?: DiffReport['responsive'] }): Finding[] {
+  return [...report.visual.flatMap((v) => v.findings), ...report.behavioral.flatMap((b) => b.findings), ...(report.responsive ?? []).flatMap((r) => r.findings)];
 }
 
 /** Findings new since the previous attempt and findings that disappeared. */
@@ -30,7 +30,7 @@ export interface AttemptDiff {
 }
 
 /** Regressions are current findings whose key the previous attempt lacked; resolved are previous findings whose key is gone. */
-export function diffAttempts(previous: Pick<DiffReport, 'visual' | 'behavioral'> | null, current: readonly Finding[]): AttemptDiff {
+export function diffAttempts(previous: (Pick<DiffReport, 'visual' | 'behavioral'> & { readonly responsive?: DiffReport['responsive'] }) | null, current: readonly Finding[]): AttemptDiff {
   if (previous === null) return { regressions: [], resolved: [] };
   const previousFindings = allFindings(previous);
   const previousKeys = new Set(previousFindings.map((f) => f.key));

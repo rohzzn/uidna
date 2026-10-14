@@ -18,9 +18,11 @@ import {
   EvidenceRecordSchema,
   ExploreRecordSchema,
   GenerateRecordSchema,
+  ResponsiveRecordSchema,
   ScanRecordSchema,
   type ExploreRecord,
   type GenerateRecord,
+  type ResponsiveRecord,
   type ScanRecord,
 } from './records.js';
 
@@ -191,6 +193,16 @@ export class ScanStore {
   async loadExplore(scanId: string): Promise<Result<ExploreRecord | null>> {
     if (!(await this.fileExists(scanId, 'explore.json'))) return ok(null);
     return this.readJson(scanId, 'explore.json', ExploreRecordSchema);
+  }
+
+  async saveResponsive(scanId: string, record: ResponsiveRecord): Promise<Result<string>> {
+    const written = await this.writeJson(scanId, 'responsive.json', ResponsiveRecordSchema, record);
+    return written.ok ? ok('responsive.json') : written;
+  }
+
+  async loadResponsive(scanId: string): Promise<Result<ResponsiveRecord | null>> {
+    if (!(await this.fileExists(scanId, 'responsive.json'))) return ok(null);
+    return this.readJson(scanId, 'responsive.json', ResponsiveRecordSchema);
   }
 
   async saveGenerate(scanId: string, record: GenerateRecord): Promise<Result<string>> {

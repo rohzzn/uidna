@@ -2,6 +2,8 @@
  * `scan_interface`: capture a page at each viewport into a new scan and
  * assemble the first UI DNA document from the base states.
  */
+import type { UiDnaDocument } from '@rohzzn/uidna-schema';
+import { emptyResponsiveRecord, measureResponsive, resolveResponsiveOptions } from './responsive.js';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Transition } from '@rohzzn/uidna-schema';
@@ -180,11 +182,15 @@ export async function reassembleDna(ctx: WorkflowContext, scan: ScanRecord, tran
   // The explore record carries per-page coverage; it is absent before the first exploration.
   const explore = await ctx.store.loadExplore(scan.scanId);
   if (!explore.ok) return explore;
+  // Stylesheet conditions and probe results; absent for scans made before 0.3.0 or with responsive measurement off.
+  const responsive = await ctx.store.loadResponsive(scan.scanId);
+  if (!responsive.ok) return responsive;
   const assembled = assembleDna({
     scan,
     captures: captures.value,
     ...(transitions === undefined ? {} : { transitions }),
     explore: explore.value,
+    responsive: responsive.value,
     previous: previous ? previous.value : null,
     toolVersion: ctx.toolVersion,
     clock: ctx.clock,
@@ -248,11 +254,13 @@ export async function scanInterface(
     await session.close();
     return created;
   }
+  const responsiveOptions = resolveResponsiveOptions(input.responsive);
   const evidence = await ctx.ledger.record({
     kind: 'scan',
-    inputs: { url: input.url, cdpEndpoint: input.cdpEndpoint, targetId: input.targetId, viewports: viewports.map((v) => v.width), budget: limits },
+    inputs: { url: input.url, cdpEndpoint: input.cdpEndpoint, targetId: input.targetId, viewports: viewports.map((v) => v.width), budget: limits, responsive: responsiveOptions },
     scanId,
   });
+  const responsive = emptyResponsiveRecord(scanId, evidence.id, responsiveOptions);
 
   try {
     if (input.url) {
@@ -342,6 +350,14 @@ export async function scanInterface(
         scan.budget = { limits, used: budget.usage() };
         await ctx.store.saveScan(scan);
       }
+      const capturedWidths = scan.states.filter((state) => state.pageId === pageId && state.kind === 'base').map((state) => state.viewport.width);
+      if (capturedWidths.length > 0 && (responsiveOptions.css || responsiveOptions.probe)) {
+        ctx.progress.report({ message: `measuring breakpoints of ${pageId}` });
+        const measured = await measureResponsive(session, { pageId, scannedWidths: capturedWidths, options: responsiveOptions, budget });
+        responsive.pages[pageId] = measured;
+        limitations.push(...measured.limitations.map((l) => `${pageId} responsive: ${l}`));
+        scan.budget = { limits, used: budget.usage() };
+      }
       pages.push({ pageId, url: next.url, depth: next.depth, discoveredVia: next.discoveredVia, title });
       scan.pages = pages;
       if (maxPages > 1 && widest !== null) {
@@ -370,6 +386,10 @@ export async function scanInterface(
     return err(uidnaError('capture', `scan ${scanId}: no viewport could be captured`, { details: { scanId, scanDir: created.value, unknowns } }));
   }
 
+  if (Object.keys(responsive.pages).length > 0) {
+    const savedResponsive = await ctx.store.saveResponsive(scanId, responsive);
+    if (!savedResponsive.ok) limitations.push(`responsive measurements not saved: ${describeError(savedResponsive.error)}`);
+  }
   ctx.progress.report({ message: 'assembling UI DNA document', current: viewports.length + 2, total: viewports.length + 2 });
   const dnaPath = await reassembleDna(ctx, scan);
   if (!dnaPath.ok) {
@@ -391,6 +411,7 @@ export async function scanInterface(
   const artifacts = [
     'scan.json',
     'dna.json',
+    ...(Object.keys(responsive.pages).length > 0 ? ['responsive.json'] : []),
     ...scan.states.flatMap((s) => [s.capturePath, ...(s.screenshotPath ? [s.screenshotPath] : [])]),
   ];
   const finalEvidence = ctx.ledger.withArtifacts(evidence, artifacts);
@@ -407,9 +428,27 @@ export async function scanInterface(
       stateIds: page.stateIds,
     })),
     states: stateSummaries(dna.value),
+    breakpoints: breakpointSummaries(dna.value),
     assets: { count: dna.value.assets.length, byKind, byOrigin },
     budget: { used: { ...budget.usage() }, limits: { ...limits } },
     dnaPath: dnaPath.value,
   };
   return ok(envelope(finalEvidence, result, { limitations, unknowns }));
+}
+
+/** Located breakpoints of a document as tools report them, ascending by width. */
+export function breakpointSummaries(dna: UiDnaDocument): ToolOutput<typeof scanInterfaceContract>['breakpoints'] {
+  const responsive = dna.visual.responsive;
+  if (responsive === undefined) return [];
+  const conditionText = new Map(responsive.conditions.map((c) => [c.id, c.text] as const));
+  return [...responsive.breakpoints]
+    .sort((a, b) => a.minWidth - b.minWidth)
+    .map((b) => ({
+      minWidth: b.minWidth,
+      source: b.source,
+      bracket: { ...b.bracket },
+      conditions: b.conditionIds.map((id) => conditionText.get(id) ?? id),
+      pageIds: [...b.pageIds],
+      rules: responsive.rules.filter((r) => r.breakpointId === b.id).length,
+    }));
 }

@@ -539,7 +539,7 @@ export const MediaConditionSchema = z.strictObject({
   never: z.boolean(),
   /** Parts the parser did not evaluate (e.g. `calc()`), so thresholds may be incomplete. */
   unsupported: z.array(z.string()),
-  stylesheet: z.strictObject({ url: z.string().nullable(), origin: z.enum(['same-origin', 'inline']) }),
+  stylesheet: z.strictObject({ url: z.string().nullable(), origin: z.enum(['same-origin', 'cross-origin', 'inline']) }),
   /** Style rules inside the condition. */
   ruleCount: NonNegativeInt,
   pageIds: z.array(Id).min(1),
