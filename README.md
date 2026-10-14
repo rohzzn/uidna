@@ -65,7 +65,7 @@ browser sessions and synthetic pages rather than by the fixture loop.
 ## Install
 
 ```bash
-npm install -g uidna
+npm install -g @rohzzn/uidna
 npx playwright install chromium
 uidna setup      # registers the MCP server in Claude Code, Codex and Cursor (asks first, backs up)
 uidna doctor     # browser availability, CDP reachability, registration state
@@ -74,7 +74,7 @@ uidna doctor     # browser availability, CDP reachability, registration state
 `uidna setup` prints the planned changes to `~/.claude.json`, `~/.codex/config.toml` and
 `~/.cursor/mcp.json`, asks for confirmation and backs up every file it touches
 (`--scope project` writes `.mcp.json` and `.cursor/mcp.json` in the current directory
-instead; `--yes` skips the prompt). The registered command is `npx -y uidna serve`
+instead; `--yes` skips the prompt). The registered command is `npx -y @rohzzn/uidna serve`
 (wrapped in `cmd /c` on Windows).
 
 Manual MCP configuration, if you prefer:
@@ -82,7 +82,7 @@ Manual MCP configuration, if you prefer:
 ```json
 {
   "mcpServers": {
-    "uidna": { "type": "stdio", "command": "npx", "args": ["-y", "uidna", "serve"] }
+    "uidna": { "type": "stdio", "command": "npx", "args": ["-y", "@rohzzn/uidna", "serve"] }
   }
 }
 ```

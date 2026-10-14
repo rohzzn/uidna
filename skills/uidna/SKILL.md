@@ -1,6 +1,6 @@
 ---
 name: uidna
-description: Reverse-engineer a user interface into a UI DNA document and rebuild it as a React project you own, with a DiffReport as proof. Use when asked to clone, reproduce, reconstruct, study or extract the design tokens, components or behavior of a web page or app screen. Requires the uidna MCP server (npx uidna setup).
+description: Reverse-engineer a user interface into a UI DNA document and rebuild it as a React project you own, with a DiffReport as proof. Use when asked to clone, reproduce, reconstruct, study or extract the design tokens, components or behavior of a web page or app screen. Requires the uidna MCP server (npx @rohzzn/uidna setup).
 ---
 
 # UI DNA

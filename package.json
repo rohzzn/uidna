@@ -1,5 +1,5 @@
 {
-  "name": "uidna",
+  "name": "@rohzzn/uidna",
   "version": "0.1.0",
   "description": "Reverse-engineer any user interface into a UI DNA document, rebuild it as code you own, and prove it with a DiffReport. MCP server and CLI for coding agents.",
   "license": "MIT",
@@ -75,5 +75,8 @@
     "playwright",
     "react",
     "coding-agents"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

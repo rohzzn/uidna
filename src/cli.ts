@@ -28,7 +28,7 @@ export async function readToolVersion(): Promise<string> {
   for (const candidate of [join(here, '..', 'package.json'), join(here, '..', '..', 'package.json')]) {
     try {
       const pkg = JSON.parse(await readFile(candidate, 'utf8')) as { name?: string; version?: string };
-      if (pkg.name === 'uidna' && pkg.version) return pkg.version;
+      if (pkg.name === '@rohzzn/uidna' && pkg.version) return pkg.version;
     } catch {
       // try the next candidate
     }
