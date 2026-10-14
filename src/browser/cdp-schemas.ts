@@ -159,3 +159,50 @@ export const ImageSizesResultSchema = z.array(z.object({ width: z.number(), heig
 
 /** Result of the in-page icon link script. */
 export const IconLinksResultSchema = z.array(z.string());
+
+/** Form-control facts for one node (`UiNode.form`), as read in-page. */
+export const FormControlFactsSchema = z.object({
+  valid: z.boolean().nullable(),
+  validationMessage: z.string().nullable(),
+  required: z.boolean(),
+  type: z.string().nullable(),
+  hasValue: z.boolean(),
+});
+
+/** Result of the in-page form facts script: one entry per requested path (null when the path did not resolve). */
+export const FormFactsResultSchema = z.array(
+  z
+    .object({
+      form: FormControlFactsSchema.nullable(),
+      /** Text of the elements `aria-errormessage` references, or null. */
+      errorMessage: z.string().nullable(),
+      /** Text of the elements `aria-describedby` references, or null. */
+      describedBy: z.string().nullable(),
+    })
+    .nullable(),
+);
+
+/** Result of the in-page control inspection that precedes a `fill` action. */
+export const ControlFactsSchema = z.object({
+  found: z.boolean(),
+  tag: z.string(),
+  /** `HTMLInputElement.type` (normalized by the browser), `select-one`/`select-multiple`, `textarea`, or null. */
+  type: z.string().nullable(),
+  disabled: z.boolean(),
+  readOnly: z.boolean(),
+  contentEditable: z.boolean(),
+  /** Options of a `<select>`, in document order. */
+  options: z.array(z.object({ value: z.string(), label: z.string() })),
+});
+/** Parsed control facts. */
+export type ControlFacts = z.infer<typeof ControlFactsSchema>;
+
+/** Result of the in-page submit script. */
+export const SubmitResultSchema = z.object({
+  submitted: z.boolean(),
+  reason: z.string().nullable(),
+  /** The form's method (`get`/`post`/`dialog`) when a form was found, or null. */
+  method: z.string().nullable(),
+  /** True when the form was submitted through one of its submit buttons (`requestSubmit(submitter)`). */
+  viaSubmitter: z.boolean(),
+});

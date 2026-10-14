@@ -79,7 +79,9 @@ describe('Phase 2 loop on Fixture C (forms and data)', () => {
     expect(fills.every((t) => (t.action.value ?? '').length > 0)).toBe(true);
     const filledSubmit = submits.find((t) => t.sideEffects);
     expect(filledSubmit, 'a blocked submission recorded as a side effect').toBeDefined();
-    expect(dna.states.items.find((s) => s.id === filledSubmit?.to)?.nodes.some((n) => n.attrs.id === 'status' && n.visible)).toBe(false);
+    // The blocked POST rejects the page's fetch, so the status may show the error path but never the success message.
+    const statusAfterSubmit = dna.states.items.find((s) => s.id === filledSubmit?.to)?.nodes.find((n) => n.attrs.id === 'status');
+    expect(statusAfterSubmit?.text ?? '').not.toContain('Welcome');
 
     // Data asset from the JSON endpoint and a typed mock in the project
     const data = dna.assets.find((a) => a.kind === 'data' && a.url.endsWith('/api/items.json'));

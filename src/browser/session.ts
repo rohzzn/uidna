@@ -6,7 +6,12 @@
  * reported; actions never leave the page's origin: while an action runs,
  * cross-origin main-frame navigations (of this page or of a page the action
  * opens) are aborted before any request reaches the other origin, and pages
- * the action still manages to open are closed.
+ * the action still manages to open are closed. Same-origin document
+ * navigations are blocked too, except for a click with
+ * `allowNavigation: 'same-origin'` (crawling), which follows one GET
+ * navigation (never a form POST) and honours robots.txt and the per-origin
+ * rate limit on the way. Fill and submit actions additionally abort every
+ * non-GET request they trigger and report it in `blockedRequests`.
  */
 import { randomBytes } from 'node:crypto';
 import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, Locator, Page, Request, Route } from 'playwright';
@@ -14,7 +19,10 @@ import type { Viewport } from '@rohzzn/uidna-schema';
 import type { Clock } from '../domain/clock.js';
 import { toError, uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
+import { JsonBodyRecorder } from './bodies.js';
 import { capturePage, snapshotPage, type CaptureContext } from './capture.js';
+import { ControlFactsSchema, SubmitResultSchema } from './cdp-schemas.js';
+import { planFill, readControlFacts, submitFormAt } from './forms.js';
 import { addInitScriptInPage, evaluateHandleInPage, evaluateInPage } from './in-page.js';
 import { NetworkLedger } from './network.js';
 import { redactUrl } from './redact.js';
@@ -44,8 +52,20 @@ export const DEFAULT_ACTION_TIMEOUT_MS = 5000;
 /** Timeout for an action whose target is hidden when the action starts (it may still appear, briefly). */
 export const HIDDEN_TARGET_TIMEOUT_MS = 1000;
 
-/** `NetworkEntry.failure` of a cross-origin navigation that an action triggered and UI DNA aborted instead of sending. */
-export const BLOCKED_NAVIGATION_FAILURE = 'blocked by UI DNA: cross-origin navigation during an action';
+/** `NetworkEntry.failure` of a document navigation (same- or cross-origin) that an action triggered and UI DNA aborted instead of sending. */
+export const BLOCKED_NAVIGATION_FAILURE = 'blocked by UI DNA: document navigation during an action';
+
+/** `NetworkEntry.failure` of a non-GET request (form submission, XHR, fetch) that a fill/submit action triggered and UI DNA aborted instead of sending. */
+export const BLOCKED_REQUEST_FAILURE = 'blocked by UI DNA: non-GET request during a fill/submit action';
+
+/** `NetworkEntry.failure` prefix of a same-origin navigation a click was allowed to follow but robots.txt disallows. */
+export const ROBOTS_BLOCKED_NAVIGATION_FAILURE = 'blocked by UI DNA: robots.txt disallows the navigation';
+
+/** How long a fill/submit action waits for the requests it triggered to settle, so every one of them met the guard before it is removed. */
+export const ACTION_SETTLE_TIMEOUT_MS = 2000;
+
+/** How long a click with `allowNavigation` waits for the navigation it was allowed to follow to commit. */
+export const NAVIGATION_COMMIT_TIMEOUT_MS = 10_000;
 
 /** Limitation recorded on a capture whose document has no recorded navigation request. */
 export const NETWORK_INCOMPLETE_LIMITATION =
@@ -71,8 +91,27 @@ export interface SessionDeps {
 
 type AriaRole = Parameters<Page['getByRole']>[0];
 type Actionable =
-  | { readonly kind: 'handle'; readonly element: ElementHandle }
+  | { readonly kind: 'handle'; readonly element: ElementHandle; readonly path: string }
   | { readonly kind: 'locator'; readonly locator: Locator };
+
+interface Deferred {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms).unref();
+  });
+}
+
+function deferred(): Deferred {
+  let resolve: () => void = () => undefined;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 const NODE_PATH_PATTERN = /^(\d+(\/\d+)*)?$/;
 
@@ -95,6 +134,7 @@ export class PlaywrightSession implements BrowserSession {
   private readonly browser: Browser;
   private readonly clock: Clock;
   private readonly ledger: NetworkLedger;
+  private readonly bodies = new JsonBodyRecorder();
   private readonly robots: RobotsCache;
   private readonly honorRobots: boolean;
   private readonly rateLimitMs: number | undefined;
@@ -123,6 +163,7 @@ export class PlaywrightSession implements BrowserSession {
     this.robots = deps.robots ?? new RobotsCache();
     this.ledger = new NetworkLedger(deps.clock);
     this.ledger.attach(deps.page);
+    this.bodies.attach(deps.page);
     deps.page.on('dialog', (dialog) => {
       this.dialogs.push(`${dialog.type()}: ${dialog.message()}`);
       dialog.dismiss().catch(() => undefined);
@@ -216,28 +257,75 @@ export class PlaywrightSession implements BrowserSession {
     const dialogsStart = this.dialogs.length;
     const before = this.page.url();
     const originBefore = originOf(before);
+    const networkMarker = this.ledger.mark();
+    // A click may follow one same-origin document navigation (crawled pages); nothing else ever leaves the document.
+    const followSameOrigin = action.kind === 'click' && action.allowNavigation === 'same-origin';
+    // Fill and submit actions never let a non-GET request (form submission, XHR, fetch) reach any server.
+    const blockNonGet = action.kind === 'fill' || action.kind === 'submit';
     let navigated = false;
     const blocked: string[] = [];
+    let blockedDetail = '';
+    const blockedRequests: string[] = [];
     let popups = 0;
+    const nav: { commit: Deferred | null } = { commit: null };
     const onNavigated = (frame: Frame): void => {
-      if (frame === this.page.mainFrame()) navigated = true;
+      if (frame !== this.page.mainFrame()) return;
+      navigated = true;
+      nav.commit?.resolve();
     };
     const onPopup = (popup: Page): void => {
       popups += 1;
       popup.close().catch(() => undefined);
     };
+    const abort = async (route: Route): Promise<void> => {
+      // `aborted` (net::ERR_ABORTED) cancels the navigation like `window.stop()`: no error page, and Playwright
+      // clears its pending-navigation state so later actions do not wait on it. Other abort codes commit an error page.
+      await route.abort('aborted').catch(() => undefined);
+    };
     const guard = async (route: Route): Promise<void> => {
       const request = route.request();
+      const url = request.url();
       const target = classifyNavigation(request, this.page);
-      // Phase 1 explores one document: every document navigation of this page that an action requests
-      // is blocked, same-origin or not (hash changes never issue a request and are reported as navigated);
-      // other pages (popups) are blocked only cross-origin and closed either way.
-      if (target === 'session' || (target === 'other-page' && originOf(request.url()) !== originBefore)) {
-        blocked.push(redactUrl(request.url()));
-        this.ledger.block(request, BLOCKED_NAVIGATION_FAILURE);
-        // `aborted` (net::ERR_ABORTED) cancels the navigation like `window.stop()`: no error page, and Playwright
-        // clears its pending-navigation state so later actions do not wait on it. Other abort codes commit an error page.
-        await route.abort('aborted').catch(() => undefined);
+      const sameOrigin = originOf(url) === originBefore;
+      const nonGet = request.method().toUpperCase() !== 'GET';
+      // Every document navigation of this page that an action requests is blocked, same-origin or not (hash changes
+      // never issue a request and are reported as navigated), unless the click may follow a same-origin GET that
+      // robots.txt allows (a POST form submission is never followed, whatever the origin); other pages (popups) are
+      // blocked only cross-origin and closed either way.
+      let navigationBlock: string | null = null;
+      if (target === 'session') {
+        if (!(followSameOrigin && sameOrigin && !nonGet)) {
+          navigationBlock = BLOCKED_NAVIGATION_FAILURE;
+        } else if (this.mode === 'launch' && this.honorRobots) {
+          const decision = await this.robots.check(url);
+          if (!decision.ok) {
+            navigationBlock = `${ROBOTS_BLOCKED_NAVIGATION_FAILURE} (${decision.error.message})`;
+            if (blockedDetail === '') blockedDetail = ` by robots.txt (${decision.error.message})`;
+          }
+        }
+      } else if (target === 'other-page' && !sameOrigin) {
+        navigationBlock = BLOCKED_NAVIGATION_FAILURE;
+      }
+      if (navigationBlock !== null) {
+        blocked.push(redactUrl(url));
+        if (blockNonGet && nonGet) blockedRequests.push(redactUrl(url));
+        this.ledger.block(request, navigationBlock);
+        nav.commit?.resolve();
+        await abort(route);
+        return;
+      }
+      if (target === 'session') {
+        // An allowed navigation: `act()` waits for it to commit (or for a later hop to be blocked) before it looks at the page.
+        nav.commit ??= deferred();
+        // It is a navigation like `navigate()`: the same per-origin rate limit applies, once per navigation (not per redirect hop).
+        if (request.redirectedFrom() === null) {
+          const parsed = parseUrl(url);
+          if (parsed !== null) await this.applyRateLimit(parsed);
+        }
+      } else if (blockNonGet && nonGet) {
+        blockedRequests.push(redactUrl(url));
+        this.ledger.block(request, BLOCKED_REQUEST_FAILURE);
+        await abort(route);
         return;
       }
       await route.continue().catch(() => undefined);
@@ -252,6 +340,8 @@ export class PlaywrightSession implements BrowserSession {
       routed = true;
       const performed = await this.perform(action);
       await this.page.waitForTimeout(100);
+      if (nav.commit !== null) await Promise.race([nav.commit.promise, sleep(NAVIGATION_COMMIT_TIMEOUT_MS)]);
+      if (blockNonGet) await this.settleRequests(networkMarker);
       if (navigated || this.page.url() !== before) {
         navigated = true;
         await this.page.waitForLoadState('load', { timeout: 5000 }).catch(() => undefined);
@@ -278,7 +368,7 @@ export class PlaywrightSession implements BrowserSession {
       } else if (blocked.length > 0) {
         outcome = {
           performed: false,
-          reason: `The action would have navigated to ${blocked[0] ?? ''}; the navigation was blocked and the page stayed at ${url}.`,
+          reason: `The action would have navigated to ${blocked[0] ?? ''}; the navigation was blocked${blockedDetail} and the page stayed at ${url}.`,
         };
       } else if (popups > 0) {
         outcome = { performed: false, reason: `The action opened ${popups} new page(s); they were closed because UI DNA explores one page at a time.` };
@@ -292,6 +382,7 @@ export class PlaywrightSession implements BrowserSession {
       };
       if (outcome.reason !== undefined) result.reason = outcome.reason;
       if (blocked.length > 0) result.blockedNavigation = blocked[0] ?? '';
+      if (blockNonGet) result.blockedRequests = blockedRequests;
       return ok(result);
     } catch (cause) {
       return err(toError(cause, 'browser', 'Action failed'));
@@ -359,6 +450,7 @@ export class PlaywrightSession implements BrowserSession {
     if (this.closed) return;
     this.closed = true;
     this.ledger.detach();
+    this.bodies.detach();
     if (this.cdpSession) {
       try {
         await this.cdpSession.detach();
@@ -392,7 +484,33 @@ export class PlaywrightSession implements BrowserSession {
       viewport: this.currentViewport,
       network: documentNetwork ?? this.ledger.since(),
       networkLimitation: documentNetwork === null ? NETWORK_INCOMPLETE_LIMITATION : null,
+      jsonBodies: (maxBodyBytes) => this.bodies.collect(maxBodyBytes),
     };
+  }
+
+  /** Wait (bounded) until the requests recorded since `marker` have finished or failed, so a blocked request is never left pending. */
+  private async settleRequests(marker: string): Promise<void> {
+    const started = Date.now();
+    while (this.ledger.inFlightSince(marker) > 0 && Date.now() - started < ACTION_SETTLE_TIMEOUT_MS) {
+      await this.page.waitForTimeout(50);
+    }
+  }
+
+  /** Node path of an actionable: known for handles, computed in-page for locators (null when the element is not under `<body>`, e.g. in a shadow root). */
+  private async pathOf(actionable: Actionable): Promise<string | null> {
+    if (actionable.kind === 'handle') return actionable.path;
+    const raw: unknown = await actionable.locator.evaluate((el: Element) => {
+      const parts: number[] = [];
+      let node: Element | null = el;
+      while (node !== null && node !== document.body) {
+        const parent: Element | null = node.parentElement;
+        if (parent === null) return null;
+        parts.unshift(Array.prototype.indexOf.call(parent.children, node));
+        node = parent;
+      }
+      return node === null ? null : parts.join('/');
+    });
+    return typeof raw === 'string' && NODE_PATH_PATTERN.test(raw) ? raw : null;
   }
 
   private async cdp(reset: boolean): Promise<CDPSession | null> {
@@ -479,6 +597,52 @@ export class PlaywrightSession implements BrowserSession {
           return { performed: false, reason: toError(cause, 'browser').message };
         }
       }
+      case 'fill': {
+        const resolved = await this.resolveTarget(action.target);
+        if (!resolved.ok) return { performed: false, reason: resolved.error.message };
+        const actionable = resolved.value;
+        try {
+          const path = await this.pathOf(actionable);
+          if (path === null) return { performed: false, reason: 'The target cannot be addressed by a node path (it is not under <body>, e.g. inside a shadow root); it was not filled' };
+          const facts = ControlFactsSchema.safeParse(await evaluateInPage(this.page, readControlFacts, path));
+          if (!facts.success) return { performed: false, reason: 'The target control could not be inspected (unexpected in-page result)' };
+          const plan = planFill(facts.data, action.value);
+          if (plan.kind === 'refuse') return { performed: false, reason: plan.reason };
+          const visibleNow = await (actionable.kind === 'handle' ? actionable.element.isVisible() : actionable.locator.isVisible());
+          const options = { timeout: visibleNow ? DEFAULT_ACTION_TIMEOUT_MS : HIDDEN_TARGET_TIMEOUT_MS };
+          if (plan.kind === 'fill') {
+            await (actionable.kind === 'handle' ? actionable.element.fill(action.value, options) : actionable.locator.fill(action.value, options));
+          } else if (plan.kind === 'check') {
+            await (actionable.kind === 'handle' ? actionable.element.setChecked(plan.checked, options) : actionable.locator.setChecked(plan.checked, options));
+          } else {
+            await (actionable.kind === 'handle' ? actionable.element.selectOption(plan.option, options) : actionable.locator.selectOption(plan.option, options));
+          }
+          return { performed: true };
+        } catch (cause) {
+          if (this.page.isClosed()) throw cause;
+          return { performed: false, reason: toError(cause, 'browser').message };
+        } finally {
+          if (actionable.kind === 'handle') await actionable.element.dispose().catch(() => undefined);
+        }
+      }
+      case 'submit': {
+        const resolved = await this.resolveTarget(action.target);
+        if (!resolved.ok) return { performed: false, reason: resolved.error.message };
+        const actionable = resolved.value;
+        try {
+          const path = await this.pathOf(actionable);
+          if (path === null) return { performed: false, reason: 'The target cannot be addressed by a node path (it is not under <body>, e.g. inside a shadow root); nothing was submitted' };
+          const result = SubmitResultSchema.safeParse(await evaluateInPage(this.page, submitFormAt, path));
+          if (!result.success) return { performed: false, reason: 'The form could not be submitted (unexpected in-page result)' };
+          if (!result.data.submitted) return { performed: false, reason: result.data.reason ?? 'The form was not submitted' };
+          return { performed: true };
+        } catch (cause) {
+          if (this.page.isClosed()) throw cause;
+          return { performed: false, reason: toError(cause, 'browser').message };
+        } finally {
+          if (actionable.kind === 'handle') await actionable.element.dispose().catch(() => undefined);
+        }
+      }
       case 'scroll':
         await evaluateInPage(this.page, scrollTo, action.y);
         return { performed: true };
@@ -509,7 +673,7 @@ export class PlaywrightSession implements BrowserSession {
         await handle.dispose().catch(() => undefined);
         return err(uidnaError('not-found', `Node path "${path}" does not resolve to an element in the current document`));
       }
-      return ok({ kind: 'handle', element });
+      return ok({ kind: 'handle', element, path });
     }
     if (target.role !== undefined) {
       const options: { name?: string; exact?: boolean } = {};
@@ -571,6 +735,14 @@ function originOf(url: string): string {
     return new URL(url).origin;
   } catch {
     return url;
+  }
+}
+
+function parseUrl(url: string): URL | null {
+  try {
+    return new URL(url);
+  } catch {
+    return null;
   }
 }
 

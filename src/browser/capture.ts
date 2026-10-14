@@ -17,14 +17,16 @@ import { toError, uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { collectAssets, DEFAULT_MAX_ASSET_BYTES } from './assets.js';
 import { indexAxTree, type AxIndex } from './ax.js';
+import { collectDataAssets, DEFAULT_MAX_BODY_BYTES, type JsonBodyCollection } from './bodies.js';
 import { AxTreeResultSchema, DocumentMetricsSchema } from './cdp-schemas.js';
 import { attachBackendIds, collectViaEvaluate, collectViaSnapshot, fillMissingStyles, type RawTree } from './dom-tree.js';
 import { collectFonts } from './fonts.js';
+import { collectFormFacts } from './forms.js';
 import { evaluateInPage } from './in-page.js';
 import { buildState } from './nodes.js';
 import { CapturedStateSchema } from './schemas.js';
 import { MAX_ATTR_LENGTH, MAX_TEXT_LENGTH, RENDERING_STYLE_PROPERTIES } from './style-properties.js';
-import type { CaptureOptions, CapturedState, NetworkEntry, PageSnapshot, ScreenshotFile } from './types.js';
+import type { CapturedAsset, CaptureOptions, CapturedState, NetworkEntry, PageSnapshot, ScreenshotFile } from './types.js';
 
 /** Default maximum captured page height in CSS pixels. */
 export const DEFAULT_MAX_HEIGHT = 4000;
@@ -40,6 +42,12 @@ export interface CaptureContext {
   readonly network: readonly NetworkEntry[];
   /** Why `network` may be incomplete (e.g. the session attached after the page loaded), or null. */
   readonly networkLimitation?: string | null;
+  /**
+   * JSON bodies of the current document's XHR/fetch responses (redacted), read
+   * only when a capture asks for `captureBodies: 'json'`. Absent when the
+   * session records no bodies.
+   */
+  readonly jsonBodies?: (maxBodyBytes: number) => Promise<JsonBodyCollection>;
 }
 
 /** Document metrics measured in-page. */
@@ -73,7 +81,9 @@ export async function capturePage(context: CaptureContext, options: CaptureOptio
   // `collectTree` may have replaced the CDP session after a DOMSnapshot failure: use whatever is current now.
   const cdp = initialCdp === null ? null : await context.cdp();
   const ax = await collectAx(cdp, limitations);
-  const built = buildState(tree, ax, { includeHiddenNodes, withStyles: true });
+  const formFacts = await collectFormFacts(context.page, tree);
+  if (formFacts.limitation !== null) limitations.push(formFacts.limitation);
+  const built = buildState(tree, ax, { includeHiddenNodes, withStyles: true, formFacts: formFacts.facts });
   if (built.truncated.attrs > 0) limitations.push(`${built.truncated.attrs} attribute value(s) were clipped to ${MAX_ATTR_LENGTH} characters.`);
   if (built.truncated.text > 0) limitations.push(`${built.truncated.text} text node(s) were clipped to ${MAX_TEXT_LENGTH} characters.`);
   if (context.networkLimitation) limitations.push(context.networkLimitation);
@@ -104,6 +114,21 @@ export async function capturePage(context: CaptureContext, options: CaptureOptio
   const assets = await collectAssets(options.assetDir === undefined ? assetInput : { ...assetInput, assetDir: options.assetDir });
   limitations.push(...assets.limitations);
 
+  // JSON bodies are never read unless asked for; the recorder is the session's and lives across captures of one document.
+  let dataAssets: readonly CapturedAsset[] = [];
+  if ((options.captureBodies ?? 'none') === 'json') {
+    if (context.jsonBodies === undefined) {
+      limitations.push('JSON response bodies were requested but this session does not record them.');
+    } else {
+      const bodies = await context.jsonBodies(options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES);
+      limitations.push(...bodies.limitations);
+      const dataInput: Parameters<typeof collectDataAssets>[0] = { bodies: bodies.bodies, pageUrl: metrics.url, firstIndex: assets.assets.length };
+      const collected = await collectDataAssets(options.assetDir === undefined ? dataInput : { ...dataInput, assetDir: options.assetDir });
+      dataAssets = collected.assets;
+      limitations.push(...collected.limitations);
+    }
+  }
+
   const state: CapturedState = {
     url: redactUrl(metrics.url),
     title: metrics.title,
@@ -117,7 +142,7 @@ export async function capturePage(context: CaptureContext, options: CaptureOptio
     domDigest: built.domDigest,
     screenshot,
     fonts: fonts.fonts,
-    assets: assets.assets,
+    assets: [...assets.assets, ...dataAssets],
     network: context.network,
     limitations: dedupe(limitations),
   };

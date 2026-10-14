@@ -7,14 +7,15 @@ import type { GenerateRecord } from '../application/records.js';
 import { fixedClock } from '../domain/clock.js';
 import { unwrap } from '../domain/result.js';
 import { generateProject, MANIFEST_FILE } from './index.js';
+import { redactJson } from './mocks.js';
 import { breakpointNames, buildModel } from './model.js';
-import { FIXTURE_CAPTURED_AT, FIXTURE_PATHS, FIXTURE_SCAN_ID, fixtureDocument } from './testing.js';
+import { FIXTURE_CAPTURED_AT, FIXTURE_FORM_URL, FIXTURE_MULTI_SCAN_ID, FIXTURE_PATHS, FIXTURE_SCAN_ID, fixtureDocument, MULTI_PATHS, multiPageFormDocument } from './testing.js';
 
 const ROOT = join(process.cwd(), 'tests', '.tmp', 'generate-unit');
 const SCAN_DIR = join(ROOT, 'scan');
 
-async function generate(dna: UiDnaDocument, outDir: string): Promise<GenerateRecord> {
-  return unwrap(await generateProject({ dna, scanDir: SCAN_DIR, outDir, install: false, build: false, clock: fixedClock('2026-10-13T17:30:00.000Z'), evidenceId: 'ev_000000000010' }), 'generateProject');
+async function generate(dna: UiDnaDocument, outDir: string, options: { router?: 'none' | 'react-router'; behaviorTests?: boolean } = {}): Promise<GenerateRecord> {
+  return unwrap(await generateProject({ dna, scanDir: SCAN_DIR, outDir, install: false, build: false, clock: fixedClock('2026-10-13T17:30:00.000Z'), evidenceId: 'ev_000000000010', ...options }), 'generateProject');
 }
 
 async function read(dir: string, file: string): Promise<string> {
@@ -91,6 +92,7 @@ describe('generateProject', () => {
       'README.md',
       'index.html',
       'package.json',
+      'playwright.config.ts',
       'src/App.tsx',
       'src/components/Component01.tsx',
       'src/components/NavItem.tsx',
@@ -100,6 +102,7 @@ describe('generateProject', () => {
       'src/sections/Header.tsx',
       'src/sections/Main.tsx',
       'src/styles/tokens.css',
+      'tests/behavior.spec.ts',
       'tsconfig.json',
       MANIFEST_FILE,
       'vite.config.ts',
@@ -261,6 +264,9 @@ describe('generateProject', () => {
     expect(pkg.devDependencies.vite).toMatch(/^\^7/);
     expect(pkg.devDependencies.tailwindcss).toMatch(/^\^4/);
     expect(pkg.scripts.build).toBe('vite build');
+    expect(pkg.scripts['test:behavior']).toBe('playwright test');
+    expect(pkg.devDependencies['@playwright/test']).toMatch(/^\^1\.64/);
+    expect(pkg.dependencies['react-router-dom']).toBeUndefined();
     const html = await read(outDir, 'index.html');
     expect(html).toContain('<title>Lumen — Notes that think with you</title>');
     expect(html).toContain('<div id="root"></div>');
@@ -270,6 +276,35 @@ describe('generateProject', () => {
     expect(app).toContain('<Main />');
     expect(app).toContain('<Footer />');
     expect(await read(outDir, 'vite.config.ts')).toContain('plugins: [react(), tailwindcss()]');
+  });
+
+  it('writes Playwright behavior tests for the single page: one test per implemented transition, Escape reverts, skips with reasons', async () => {
+    const config = await read(outDir, 'playwright.config.ts');
+    expect(config).toContain("testDir: 'tests'");
+    expect(config).toContain('process.env.PORT ?? 4173');
+    expect(config).toContain('npm run preview -- --host 127.0.0.1 --port ${port} --strictPort');
+    expect(config).toContain('reuseExistingServer: true');
+    const spec = await read(outDir, 'tests/behavior.spec.ts');
+    expect(spec).toContain("import { expect, test, type Locator, type Page } from '@playwright/test';");
+    expect(spec).toContain('test("tr_01: click button \\"Open menu\\" at 0/0/1 (390×844)", async ({ page }) => {');
+    expect(spec).toContain('await page.setViewportSize({ width: 390, height: 844 });');
+    expect(spec).toContain('await page.goto("/");');
+    expect(spec).toContain('const target = await locate(page, "button", "Open menu", 0, "0/0/1");');
+    expect(spec).toContain('await target.click();');
+    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"0/0/1\\"]")).toHaveAttribute("aria-expanded", "true");');
+    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"0/0/2\\"]")).toBeVisible();');
+    expect(spec).toContain('const reverted = page.locator("[data-uidna-path=\\"0/0/1\\"]");\n    await reverted.press("Escape");');
+    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"0/0/2\\"]")).toBeHidden();');
+    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/2/1/0\\"]")).toHaveAttribute("open", "");');
+    expect(spec).toContain('await target.hover();');
+    expect(spec).not.toContain('test.skip(');
+    const tsconfig = JSON.parse(await read(outDir, 'tsconfig.json')) as { include: string[]; compilerOptions: { types: string[] } };
+    expect(tsconfig.include).toEqual(['src', 'tests', 'vite.config.ts', 'playwright.config.ts']);
+    expect(tsconfig.compilerOptions.types).toEqual(['vite/client', 'node']);
+    const manifest = JSON.parse(await read(outDir, MANIFEST_FILE)) as { router: string; pages: unknown[]; behaviorTests: { tests: number; skipped: number; deduplicated: string[] } };
+    expect(manifest.router).toBe('none');
+    expect(manifest.pages).toEqual([{ pageId: 'pg_01', name: 'Main', file: 'src/sections/Main.tsx', route: '/' }]);
+    expect(manifest.behaviorTests).toEqual({ tests: 3, skipped: 0, deduplicated: [] });
   });
 
   it('documents components, placeholders, behaviors and the verification aid in the README', async () => {
@@ -284,6 +319,8 @@ describe('generateProject', () => {
     expect(readme).toContain('Escape resets it (tr_02)');
     expect(readme).toContain('data-uidna-path');
     expect(readme).toContain('No JSON responses were observed');
+    expect(readme).toContain('No submit transition was recorded');
+    expect(readme).toContain('`tests/behavior.spec.ts` replays 3 implemented transitions');
   });
 
   it('overwrites generated files, removes stale generated files and leaves other files alone', async () => {
@@ -488,5 +525,314 @@ describe('generateProject hardening', () => {
     const record = await generate(dna, outDir);
     expect(record.components.map((c) => c.name)).toEqual(['Navitem', 'NavItem2']);
     expect(record.files.filter((f) => f.startsWith('src/components/'))).toEqual(['src/components/NavItem2.tsx', 'src/components/Navitem.tsx']);
+  });
+});
+
+describe('multi-page document with a validated form, a data asset and behavior tests', () => {
+  const outDir = join(ROOT, 'multi');
+  let record: GenerateRecord;
+
+  beforeAll(async () => {
+    await rm(ROOT, { recursive: true, force: true });
+    await mkdir(join(SCAN_DIR, 'assets'), { recursive: true });
+    await writeFile(
+      join(SCAN_DIR, 'assets', 'items.json'),
+      JSON.stringify({ items: [{ id: 1, title: 'Reading list', updated: 'Today', links: 4, token: '[redacted]' }, { id: 2, title: 'Interview notes', updated: 'Yesterday', links: 7, tags: ['work'] }], total: 2 }),
+      'utf8',
+    );
+    record = await generate(multiPageFormDocument(), outDir);
+  });
+
+  afterAll(async () => {
+    await rm(ROOT, { recursive: true, force: true });
+  });
+
+  it('validates against the schema', () => {
+    const validation = validateUiDna(multiPageFormDocument());
+    expect(formatIssues(validation)).toEqual([]);
+  });
+
+  it('writes one component per page, a router App and a Layout with Header and Footer around an Outlet', async () => {
+    expect(record.files).toEqual([
+      '.gitignore',
+      'README.md',
+      'index.html',
+      'package.json',
+      'playwright.config.ts',
+      'src/App.tsx',
+      'src/components/Component01.tsx',
+      'src/index.css',
+      'src/layouts/Layout.tsx',
+      'src/lib/validity.ts',
+      'src/main.tsx',
+      'src/mocks/itemsJson.ts',
+      'src/pages/Features.tsx',
+      'src/pages/Home.tsx',
+      'src/sections/Footer.tsx',
+      'src/sections/Header.tsx',
+      'src/styles/tokens.css',
+      'tests/behavior.spec.ts',
+      'tsconfig.json',
+      MANIFEST_FILE,
+      'vite.config.ts',
+    ]);
+    const app = await read(outDir, 'src/App.tsx');
+    expect(app).toContain("import { BrowserRouter, Route, Routes } from 'react-router-dom';");
+    expect(app).toContain('<BrowserRouter>');
+    expect(app).toContain('<Route element={<Layout />}>');
+    expect(app).toContain('<Route path="/" element={<Home />} />');
+    expect(app).toContain('<Route path="/features.html" element={<Features />} />');
+    expect(app).toContain('<Route path="/features" element={<Features />} />');
+    const layout = await read(outDir, 'src/layouts/Layout.tsx');
+    expect(layout).toContain("import { Outlet } from 'react-router-dom';");
+    expect(layout).toContain('<Header />');
+    expect(layout).toContain('<Outlet />');
+    expect(layout).toContain('<Footer />');
+    const home = await read(outDir, 'src/pages/Home.tsx');
+    expect(home).toContain('export function Home()');
+    expect(home).toContain('document.title = "Lumen — Home";');
+    expect(home).toContain('<main data-uidna-path="1">');
+    expect(home).not.toContain('<header');
+    const header = await read(outDir, 'src/sections/Header.tsx');
+    expect(header).toContain('<header className="bg-[#ffffff] border-b border-b-[#dfe3ec]" data-uidna-path="0">');
+    const pkg = JSON.parse(await read(outDir, 'package.json')) as { dependencies: Record<string, string> };
+    expect(pkg.dependencies['react-router-dom']).toBe('^7.0.0');
+    expect(await read(outDir, 'index.html')).toContain('<title>Lumen — Home</title>');
+  });
+
+  it('renders same-origin page links as <Link> (sections, pages and components) and keeps other links as <a>', async () => {
+    const home = await read(outDir, 'src/pages/Home.tsx');
+    expect(home).toContain("import { Link } from 'react-router-dom';");
+    expect(home).toContain('to="/features.html" data-uidna-path="1/0/3/0">');
+    expect(home).not.toContain('href="/features.html"');
+    const header = await read(outDir, 'src/sections/Header.tsx');
+    expect(header).toContain('to="/" data-uidna-path="0/0/0">Lumen</Link>');
+    expect(header).toContain('<Component01 uidnaPath="0/0/1/1" link={{ href: "/features.html", label: "Features" }} />');
+    const component = await read(outDir, 'src/components/Component01.tsx');
+    expect(component).toContain('to={link.href}');
+    expect(component).not.toContain('href={link.href}');
+    const footer = await read(outDir, 'src/sections/Footer.tsx');
+    expect(footer).toMatch(/<Link className="[^"]*" to="\/" data-uidna-path="2\/0\/1\/0">\s*Home\s*<\/Link>/);
+    expect(footer).toContain('href="https://example.com/" rel="noopener" data-uidna-path="2/0/1/2">');
+    expect(footer).toMatch(/<a [^>]*href="https:\/\/example\.com\/"/);
+  });
+
+  it('generates a noValidate form whose onSubmit checks validity per control and toggles the observed messages without a request', async () => {
+    const features = await read(outDir, 'src/pages/Features.tsx');
+    expect(features).toContain("import { useEffect, useState, type FormEvent } from 'react';");
+    expect(features).toContain("import { controlValidity } from '../lib/validity';");
+    expect(features).toContain('<form id="signup" noValidate data-uidna-path="1/0/2" onSubmit={onSubmit01}>');
+    expect(features).toContain('const onSubmit01 = (event: FormEvent<HTMLFormElement>): void => {');
+    expect(features).toContain('event.preventDefault();');
+    expect(features).toContain('const valid01 = controlValidity(form, "name", "1/0/2/0/1");');
+    expect(features).toContain('setError01(!valid01);');
+    expect(features).toContain('const valid02 = controlValidity(form, "email", "1/0/2/1/1");');
+    expect(features).toContain('const valid = valid01 && valid02 && form.checkValidity();');
+    expect(features).toContain('setSubmitted01(valid);');
+    expect(features).toContain('aria-invalid={error01 ? "true" : undefined}');
+    expect(features).toContain('aria-errormessage={error02 ? "email-error" : undefined}');
+    expect(features).toContain('autoComplete="name" id="name" name="name" required type="text"');
+    expect(features).toContain('hidden={error01 ? false : true} id="name-error" role="alert" data-uidna-path="1/0/2/0/2">');
+    expect(features).toContain('{error01 ? "Enter your full name." : ""}');
+    expect(features).toContain('{error02 ? "Enter a valid email address." : ""}');
+    expect(features).toContain('{submitted01 ? "Could not reach the server." : ""}');
+    expect(features).toContain('backend call not reproduced; wire your API here');
+    expect(features).not.toMatch(/fetch\(/);
+    const validity = await read(outDir, 'src/lib/validity.ts');
+    expect(validity).toContain('export function controlValidity(form: HTMLFormElement, key: string | null, path: string): boolean {');
+  });
+
+  it('writes a typed mock per data asset, inferring optional fields and keeping the redacted literal', async () => {
+    expect(record.mocks).toEqual([{ name: 'itemsJson', file: 'src/mocks/itemsJson.ts', reason: 'JSON response observed during the scan (GET http://127.0.0.1:4173/api/items.json)' }]);
+    const mock = await read(outDir, 'src/mocks/itemsJson.ts');
+    expect(mock).toContain('export interface ItemsJson {\n  items: ItemsJsonItem[];\n  total: number;\n}');
+    expect(mock).toContain('export interface ItemsJsonItem {\n  id: number;\n  links: number;\n  tags?: string[];\n  title: string;\n  token?: string;\n  updated: string;\n}');
+    expect(mock).toContain('export const itemsJson: ItemsJson = {');
+    expect(mock).toContain('"token": "[redacted]"');
+    expect(mock).toContain('"title": "Reading list"');
+    expect(mock).toContain('nothing imports it');
+    for (const file of ['src/pages/Home.tsx', 'src/pages/Features.tsx', 'src/App.tsx']) expect(await read(outDir, file)).not.toContain('itemsJson');
+  });
+
+  it('writes a behavior test per implemented transition with the observed delta and a skip for the rest', async () => {
+    const spec = await read(outDir, 'tests/behavior.spec.ts');
+    expect(spec).toContain('test("tr_01: click link \\"Features\\" at 0/0/1/1/0 (390×844)", async ({ page }) => {');
+    expect(spec).toContain('const target = await locate(page, "link", "Features", 0, "0/0/1/1/0");');
+    expect(spec).toContain('await expect(page).toHaveURL("/features.html");');
+    expect(spec).toContain('await page.goto("/features.html");');
+    expect(spec).toContain('await target.fill("Ada Lovelace");');
+    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/0/2/0/1\\"]")).toHaveValue("Ada Lovelace");');
+    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/0/2/0/1\\"]")).toHaveAttribute("aria-invalid", "true");');
+    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/0/2/0/2\\"]")).toBeVisible();');
+    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/0/2/0/2\\"]")).toHaveText("Enter your full name.");');
+    // The filled submit replays the fills recorded on the way to its from-state before submitting.
+    expect(spec).toContain('const setup02 = await locate(page, "textbox", "Email", 0, "1/0/2/1/1");\n    await setup02.fill("ada@example.com");');
+    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/0/2/3\\"]")).toHaveText("Could not reach the server.");');
+    expect(spec).toContain('test.skip("tr_06: key Tab link \\"Lumen\\" at 0/0/0: not reproduced", async () => {');
+    expect(spec).toContain('// key transitions are only reproduced as Escape reverts of an implemented click');
+    expect(spec.match(/\n {2}test\(/g)).toHaveLength(5);
+    const manifest = JSON.parse(await read(outDir, MANIFEST_FILE)) as { router: string; pages: unknown[]; behaviorTests: unknown };
+    expect(manifest.router).toBe('react-router');
+    expect(manifest.pages).toEqual([
+      { pageId: 'pg_01', name: 'Home', file: 'src/pages/Home.tsx', route: '/' },
+      { pageId: 'pg_02', name: 'Features', file: 'src/pages/Features.tsx', route: '/features.html' },
+    ]);
+    expect(manifest.behaviorTests).toEqual({ tests: 5, skipped: 1, deduplicated: [] });
+  });
+
+  it('documents pages, routes, the shared layout, forms, mocks and the tests in the README', async () => {
+    const readme = await read(outDir, 'README.md');
+    expect(readme).toContain('## Pages and routes');
+    expect(readme).toContain('| `pg_02` | http://127.0.0.1:4173/features.html | `/features.html` (also `/features` for hosts that drop the extension) | `src/pages/Features.tsx` | `Layout` | `st_03` (390px), `st_04` (1280px) |');
+    expect(readme).toContain('### Shared layout');
+    expect(readme).toContain('renders the header (`src/sections/Header.tsx`) and the footer (`src/sections/Footer.tsx`) of page `pg_01` around an `<Outlet />` for pages `pg_01`, `pg_02`');
+    expect(readme).toContain('## Forms');
+    expect(readme).toContain('- form #signup at 1/0/2 (`tr_02`, `tr_05`): `onSubmit01`, noValidate as captured.');
+    expect(readme).toContain('- `error01`: input "name" at 1/0/2/0/1 → "Enter your full name."');
+    expect(readme).toContain('- `submitted01`: changes observed after a valid submit (status message); backend call not reproduced');
+    expect(readme).toContain('- `itemsJson` in `src/mocks/itemsJson.ts`: JSON response observed during the scan (GET http://127.0.0.1:4173/api/items.json)');
+    expect(readme).toContain('`tests/behavior.spec.ts` replays 5 implemented transitions with Playwright');
+    expect(readme).toContain('`tr_06` key Tab on link "Lumen" at 0/0/0: key transitions are only reproduced as Escape reverts');
+    expect(readme).toContain('npm run test:behavior');
+  });
+
+  it('is byte-identical across two runs', async () => {
+    const second = join(ROOT, 'multi-2');
+    await generate(multiPageFormDocument(), second);
+    for (const file of record.files) expect(await read(second, file), file).toBe(await read(outDir, file));
+    expect(record.scanId).toBe(FIXTURE_MULTI_SCAN_ID);
+  });
+
+  it('router "none" keeps the single-page layout of the first page and says so in the README', async () => {
+    const single = join(ROOT, 'multi-none');
+    const none = await generate(multiPageFormDocument(), single, { router: 'none' });
+    expect(none.files).toContain('src/sections/Main.tsx');
+    expect(none.files.some((f) => f.startsWith('src/pages/') || f.startsWith('src/layouts/'))).toBe(false);
+    const app = await read(single, 'src/App.tsx');
+    expect(app).not.toContain('BrowserRouter');
+    expect(app).toContain('<Main />');
+    const header = await read(single, 'src/sections/Header.tsx');
+    expect(header).toContain('href="/" data-uidna-path="0/0/0">Lumen</a>');
+    expect(header).toContain('<Component01 uidnaPath="0/0/1/1" link={{ href: "/features.html", label: "Features" }} />');
+    expect(header).not.toContain('<Link');
+    expect(await read(single, 'src/components/Component01.tsx')).toContain('href={link.href}');
+    const readme = await read(single, 'README.md');
+    expect(readme).toContain('router "none": only the first page pg_01');
+    expect(readme).toContain('`tr_01` click on link "Features" at 0/0/1/1/0: the action led to page pg_02, which is not generated');
+  });
+
+  it('behaviorTests: false writes neither the tests nor the Playwright dependency', async () => {
+    const dir = join(ROOT, 'multi-no-tests');
+    const none = await generate(multiPageFormDocument(), dir, { behaviorTests: false });
+    expect(none.files).not.toContain('tests/behavior.spec.ts');
+    expect(none.files).not.toContain('playwright.config.ts');
+    const pkg = JSON.parse(await read(dir, 'package.json')) as { devDependencies: Record<string, string>; scripts: Record<string, string> };
+    expect(pkg.devDependencies['@playwright/test']).toBeUndefined();
+    expect(pkg.scripts['test:behavior']).toBeUndefined();
+    const tsconfig = JSON.parse(await read(dir, 'tsconfig.json')) as { include: string[] };
+    expect(tsconfig.include).toEqual(['src', 'vite.config.ts']);
+    expect(await read(dir, 'README.md')).toContain('Behavior tests were not requested');
+  });
+});
+
+describe('multi-page regressions', () => {
+  const root = join(ROOT, 'multi-regressions');
+
+  beforeAll(async () => {
+    await rm(root, { recursive: true, force: true });
+    await mkdir(join(SCAN_DIR, 'assets'), { recursive: true });
+    await writeFile(join(SCAN_DIR, 'assets', 'items.json'), JSON.stringify({ items: [{ id: 1 }], total: 1 }), 'utf8');
+  });
+
+  afterAll(async () => {
+    await rm(ROOT, { recursive: true, force: true });
+  });
+
+  function editNodeOnPage(dna: UiDnaDocument, pageId: string, path: string, edit: (node: UiNode) => UiNode): void {
+    for (const state of dna.states.items) {
+      if (state.pageId !== pageId) continue;
+      state.nodes = state.nodes.map((node) => (node.path === path ? edit(node) : node));
+    }
+  }
+
+  it('does not hoist a header the source page lacks as a top-level landmark, so the Layout never imports a missing section', async () => {
+    const dna = multiPageFormDocument();
+    // The home page's header sits in a wrapper: no banner/navigation landmark is a direct child of <body>.
+    editNodeOnPage(dna, 'pg_01', MULTI_PATHS.header, (node) => ({ ...node, tag: 'div', role: null, attrs: {} }));
+    const outDir = join(root, 'nested-header');
+    const record = await generate(dna, outDir);
+    expect(record.files).not.toContain('src/sections/Header.tsx');
+    expect(record.files).toContain('src/sections/Footer.tsx');
+    const layout = await read(outDir, 'src/layouts/Layout.tsx');
+    expect(layout).not.toContain('import { Header }');
+    expect(layout).not.toContain('<Header />');
+    expect(layout).toContain('/** Footer rendered once from page pg_01 around the routed page. */');
+    expect(layout).toContain('<Footer />');
+    expect(await read(outDir, 'src/pages/Home.tsx')).toContain('data-uidna-path="0"');
+    const readme = await read(outDir, 'README.md');
+    expect(readme).toContain('page pg_01 has no banner or navigation landmark as a direct child of &lt;body&gt;, so the header was not hoisted');
+    expect(readme).toContain('renders the footer (`src/sections/Footer.tsx`) of page `pg_01`');
+  });
+
+  it('declares in tokens.css every breakpoint a generated page uses, not only the seed page\'s', async () => {
+    const dna = multiPageFormDocument();
+    // The seed page was captured at 390px only; the features page also at 1280px.
+    dna.states.items = dna.states.items.filter((s) => s.id !== 'st_02');
+    dna.app.pages = dna.app.pages.map((page) => ({ ...page, stateIds: page.stateIds.filter((id) => id !== 'st_02') }));
+    dna.components.instances = dna.components.instances.filter((inst) => inst.stateId !== 'st_02');
+    const outDir = join(root, 'breakpoints');
+    await generate(dna, outDir);
+    const css = await read(outDir, 'src/styles/tokens.css');
+    expect(css).toContain('--breakpoint-md: 1280px;');
+    const features = await read(outDir, 'src/pages/Features.tsx');
+    expect(features).toContain('md:');
+    expect(await read(outDir, 'src/pages/Home.tsx')).not.toContain('md:');
+  });
+
+  it('asserts the fragment of a page link in the navigation test, since the Link navigates to route plus fragment', async () => {
+    const dna = multiPageFormDocument();
+    const target = `${FIXTURE_FORM_URL}#signup`;
+    for (const pageId of ['pg_01', 'pg_02']) editNodeOnPage(dna, pageId, MULTI_PATHS.featuresLink, (node) => ({ ...node, attrs: { ...node.attrs, href: '/features.html#signup' } }));
+    dna.app.navigation = dna.app.navigation.map((edge) => (edge.id === 'nav_01' ? { ...edge, to: { ...edge.to, url: target } } : edge));
+    dna.states.transitions = dna.states.transitions.map((t) => (t.id === 'tr_01' ? { ...t, navigation: { toPageId: 'pg_02', url: target } } : t));
+    const outDir = join(root, 'fragment-link');
+    await generate(dna, outDir);
+    expect(await read(outDir, 'src/sections/Header.tsx')).toContain('link={{ href: "/features.html#signup", label: "Features" }}');
+    const spec = await read(outDir, 'tests/behavior.spec.ts');
+    expect(spec).toContain('await expect(page).toHaveURL("/features.html#signup");');
+    expect(spec).not.toContain('toHaveURL("/features.html")');
+  });
+
+  it('wires a change on a valid control after a valid submit to the submitted state, never to an error state', async () => {
+    const dna = multiPageFormDocument();
+    // After the valid submit the page points the (valid) name input at the status message.
+    const st08 = dna.states.items.find((s) => s.id === 'st_08');
+    if (st08 === undefined) throw new Error('fixture has no st_08');
+    st08.nodes = st08.nodes.map((node) => (node.path === MULTI_PATHS.nameInput ? { ...node, attrs: { ...node.attrs, 'aria-describedby': 'status' } } : node));
+    const outDir = join(root, 'valid-submit');
+    await generate(dna, outDir);
+    const features = await read(outDir, 'src/pages/Features.tsx');
+    expect(features).toContain('aria-describedby={submitted01 ? "status" : undefined}');
+    expect(features).not.toContain('aria-describedby={error01');
+    expect(features).toContain('{error01 ? "Enter your full name." : ""}');
+  });
+
+  it('replays submits through a helper that blocks the native request, for clicked submit buttons too', async () => {
+    const outDir = join(root, 'submit-guard');
+    await generate(multiPageFormDocument(), outDir);
+    const spec = await read(outDir, 'tests/behavior.spec.ts');
+    expect(spec).toContain('async function submitForm(target: Locator, click: boolean): Promise<void> {');
+    expect(spec).toContain("form?.addEventListener('submit', (event) => { event.preventDefault(); }, { once: true });");
+    expect(spec).toContain('await submitForm(target, true);');
+    expect(spec).not.toMatch(/await target\.click\(\);\n\s+await expect\(page\.locator\("\[data-uidna-path=\\"1\/0\/2\/0\/1\\"\]"\)\)\.toHaveAttribute\("aria-invalid"/);
+  });
+});
+
+describe('mocks', () => {
+  it('keeps a __proto__ field of a captured response as data while redacting secret-looking keys', () => {
+    const parsed: unknown = JSON.parse('{"__proto__":{"token":"x","n":1},"a":1}');
+    const redacted = redactJson(parsed);
+    expect(JSON.stringify(redacted)).toBe('{"__proto__":{"token":"[redacted]","n":1},"a":1}');
+    expect(Object.getPrototypeOf(redacted)).toBe(Object.prototype);
   });
 });

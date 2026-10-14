@@ -177,10 +177,14 @@ export async function reassembleDna(ctx: WorkflowContext, scan: ScanRecord, tran
   // A previous document carries the agent's annotations: failing to read it must not silently drop them.
   const previous = (await ctx.store.hasDna(scan.scanId)) ? await ctx.store.loadDna(scan.scanId) : null;
   if (previous !== null && !previous.ok) return previous;
+  // The explore record carries per-page coverage; it is absent before the first exploration.
+  const explore = await ctx.store.loadExplore(scan.scanId);
+  if (!explore.ok) return explore;
   const assembled = assembleDna({
     scan,
     captures: captures.value,
     ...(transitions === undefined ? {} : { transitions }),
+    explore: explore.value,
     previous: previous ? previous.value : null,
     toolVersion: ctx.toolVersion,
     clock: ctx.clock,

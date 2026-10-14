@@ -12,6 +12,8 @@ export * from './in-page.js';
 export * from './dom-tree.js';
 export * from './nodes.js';
 export * from './network.js';
+export * from './bodies.js';
+export * from './forms.js';
 export * from './fonts.js';
 export * from './assets.js';
 export * from './capture.js';

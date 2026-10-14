@@ -1,24 +1,31 @@
 /**
- * Renders sections and components to TSX. Sections split the page by
- * landmark (banner/navigation → Header, contentinfo → Footer, the rest →
- * Main); components render their primary instance once with varying parts
- * replaced by props. Every element carries `data-uidna-path` so verification
- * can match it to the scanned node.
+ * Renders sections, pages, layouts and components to TSX. Sections split a
+ * page by landmark (banner/navigation → Header, contentinfo → Footer, the
+ * rest → Main); multi-page documents render one component per page under
+ * `src/pages/`, hoist a shared header and footer into a Layout around an
+ * `<Outlet />`, and turn same-origin page links into react-router `<Link>`.
+ * Components render their primary instance once with varying parts replaced
+ * by props. Every element carries `data-uidna-path` so verification can match
+ * it to the scanned node.
  */
+import type { UiNode } from '@rohzzn/uidna-schema';
 import type { AssetRegistry, AssetResolution } from './assets.js';
 import { BOOLEAN_ATTRIBUTES, keptAttributes } from './attrs.js';
-import type { AttrCondition, BehaviorPlan, NodeBehavior, ScopeResolver, StateVar } from './behavior.js';
+import type { AttrCondition, BehaviorPlan, ClassCondition, FormBehavior, NodeBehavior, ScopeResolver, StateVar, TextCondition } from './behavior.js';
 import type { ComponentPlan, ComponentPlanning, PropValue } from './components.js';
 import { commentText, element, jsString, jsxAttrName, printJsx, type JsxAttrValue, type JsxChild } from './jsx.js';
-import { joinPath, relativePath, VOID_TAGS, type GenNode, type GenerationModel } from './model.js';
+import { isFooterish, isHeaderish, joinPath, relativePath, splitLandmarks, VOID_TAGS, type GenNode, type GenerationModel } from './model.js';
+import { routeAlias, type LayoutPlan, type PagePlan, type SitePlan } from './site.js';
 import type { NodeClasses } from './styles.js';
 import type { TokenIndex } from './tailwind-map.js';
 
-/** A landmark section of the page. */
+/** A landmark section of a page, or the page itself (`kind: 'page'`). */
 export interface SectionPlan {
-  readonly name: 'Header' | 'Main' | 'Footer';
+  /** Component name: `Header`, `Main`, `Footer` (with a layout suffix), or the page name. */
+  readonly name: string;
   readonly file: string;
   readonly roots: readonly GenNode[];
+  readonly kind: 'section' | 'page';
 }
 
 /** Shared rendering inputs. */
@@ -30,6 +37,8 @@ export interface RenderContext {
   readonly behavior: BehaviorPlan;
   readonly classesOf: (node: GenNode) => NodeClasses;
   readonly scanId: string;
+  /** Route pattern a page link resolves to; absent or null keeps `<a href>`. */
+  readonly routeOf?: (node: UiNode) => string | null;
 }
 
 /** A rendered source file. */
@@ -38,40 +47,51 @@ export interface RenderedFile {
   readonly code: string;
 }
 
+/** Options of `renderSection` for page components. */
+export interface SectionRenderOptions {
+  /** Document title set by the page component on mount (multi-page documents). */
+  readonly title?: string;
+  /** Doc comment of the component, when not a landmark section. */
+  readonly doc?: string;
+}
+
 const PLACEHOLDER_CLASSES = ['bg-[#e5e7eb]', 'flex', 'items-center', 'justify-center', 'overflow-hidden', 'text-[#6b7280]', 'text-[12px]'];
 const DISPLAY_CLASSES = new Set(['block', 'inline', 'inline-block', 'flex', 'inline-flex', 'grid', 'inline-grid', 'list-item', 'hidden', 'contents', 'flow-root', 'table']);
 const STATE_VARIANTS = new Set(['hover', 'focus', 'active', 'focus-visible', 'focus-within']);
+/** Import path of the validity helper from any `src/<dir>/` file. */
+const VALIDITY_IMPORT = '../lib/validity';
 
-/** Split the body's children into Header/Main/Footer by landmark. */
+/** Landmark helpers live in `model.ts` (site planning needs them too); re-exported for callers of this module. */
+export { isFooterish, isHeaderish, splitLandmarks };
+
+/** Split the body's children into Header/Main/Footer by landmark (single-page layout). */
 export function planSections(model: GenerationModel): SectionPlan[] {
-  const children = model.body.children.filter((child) => child.kind !== 'skipped');
-  const isHeaderish = (node: GenNode): boolean => {
-    const role = (node.node.attrs.role ?? node.node.role ?? '').toLowerCase();
-    return node.renderedTag === 'header' || node.renderedTag === 'nav' || role === 'banner' || role === 'navigation';
-  };
-  const isFooterish = (node: GenNode): boolean => {
-    const role = (node.node.attrs.role ?? node.node.role ?? '').toLowerCase();
-    return node.renderedTag === 'footer' || role === 'contentinfo';
-  };
-  let headerEnd = 0;
-  for (const child of children) {
-    if (!isHeaderish(child)) break;
-    headerEnd += 1;
-  }
-  let footerStart = children.length;
-  while (footerStart > headerEnd) {
-    const candidate = children[footerStart - 1];
-    if (candidate === undefined || !isFooterish(candidate)) break;
-    footerStart -= 1;
-  }
+  const { header, main, footer } = splitLandmarks(model);
   const sections: SectionPlan[] = [];
-  const header = children.slice(0, headerEnd);
-  const main = children.slice(headerEnd, footerStart);
-  const footer = children.slice(footerStart);
-  if (header.length > 0) sections.push({ name: 'Header', file: 'src/sections/Header.tsx', roots: header });
-  if (main.length > 0) sections.push({ name: 'Main', file: 'src/sections/Main.tsx', roots: main });
-  if (footer.length > 0) sections.push({ name: 'Footer', file: 'src/sections/Footer.tsx', roots: footer });
+  if (header.length > 0) sections.push({ name: 'Header', file: 'src/sections/Header.tsx', roots: header, kind: 'section' });
+  if (main.length > 0) sections.push({ name: 'Main', file: 'src/sections/Main.tsx', roots: main, kind: 'section' });
+  if (footer.length > 0) sections.push({ name: 'Footer', file: 'src/sections/Footer.tsx', roots: footer, kind: 'section' });
   return sections;
+}
+
+/**
+ * Sections of a page in a multi-page document: the page component holds
+ * everything the shared layout does not, and the layout's source page also
+ * renders the hoisted header and footer files. Returns the hoisted root paths
+ * too, so planners can leave them out on the other pages of the group.
+ */
+export function planPageSections(page: PagePlan): { sections: SectionPlan[]; hoisted: { header: GenNode[]; footer: GenNode[] } } {
+  const { header, main, footer } = splitLandmarks(page.model);
+  const layout = page.layout;
+  const hoistHeader = layout !== null && layout.header && header.length > 0;
+  const hoistFooter = layout !== null && layout.footer && footer.length > 0;
+  const own = [...(hoistHeader ? [] : header), ...main, ...(hoistFooter ? [] : footer)];
+  const sections: SectionPlan[] = [];
+  const isSource = layout !== null && layout.sourcePageId === page.page.id;
+  if (layout !== null && isSource && hoistHeader) sections.push({ name: layout.headerName, file: layout.headerFile, roots: header, kind: 'section' });
+  sections.push({ name: page.name, file: page.file, roots: own, kind: 'page' });
+  if (layout !== null && isSource && hoistFooter) sections.push({ name: layout.footerName, file: layout.footerFile, roots: footer, kind: 'section' });
+  return { sections, hoisted: { header: hoistHeader ? header : [], footer: hoistFooter ? footer : [] } };
 }
 
 /** Build the resolver that maps a node path to the file and render path it lives in. */
@@ -103,6 +123,8 @@ interface ScopeState {
   readonly component: ComponentPlan | null;
   readonly pathAttr: (node: GenNode) => JsxAttrValue;
   readonly imports: Set<string>;
+  /** Names imported from react-router-dom. */
+  readonly router: Set<string>;
 }
 
 /** Order classes: base (incl. before:/after:), then hover/focus variants, then breakpoints in ascending width. */
@@ -123,6 +145,55 @@ function conditionExpr(state: StateVar, whenTrue: string, whenFalse: string): st
   return `${state.name} ? ${jsString(whenTrue)} : ${jsString(whenFalse)}`;
 }
 
+/** Nested ternary over conditions in planning order: a later condition takes precedence, the first one's off-value is the base. */
+function chainExpr<T>(conditions: readonly T[], state: (c: T) => StateVar, on: (c: T) => string, off: (c: T) => string): string {
+  const first = conditions[0];
+  if (first === undefined) return 'undefined';
+  let expr = off(first);
+  for (const condition of conditions) expr = `${state(condition).name} ? ${on(condition)} : ${expr}`;
+  return expr;
+}
+
+/** Attribute value expression for one or more conditions on the same attribute. */
+function attrConditionExpr(name: string, conditions: readonly AttrCondition[]): string {
+  if (BOOLEAN_ATTRIBUTES.has(name)) return chainExpr(conditions, (c) => c.state, (c) => (c.whenTrue === null ? 'false' : 'true'), (c) => (c.whenFalse === null ? 'false' : 'true'));
+  if (name === 'tabindex') {
+    const numeric = (value: string | null): string => (value !== null && /^-?\d+$/.test(value) ? value : 'undefined');
+    return chainExpr(conditions, (c) => c.state, (c) => numeric(c.whenTrue), (c) => numeric(c.whenFalse));
+  }
+  const text = (value: string | null): string => (value === null ? 'undefined' : jsString(value));
+  return chainExpr(conditions, (c) => c.state, (c) => text(c.whenTrue), (c) => text(c.whenFalse));
+}
+
+/** Text expression for one or more text conditions on the same node. */
+function textConditionExpr(conditions: readonly TextCondition[]): string {
+  return chainExpr(conditions, (c) => c.state, (c) => jsString(c.whenTrue), (c) => jsString(c.whenFalse));
+}
+
+/**
+ * Class expression for the conditions on one node: conditions with the same
+ * classes share one `(a || b)` test; otherwise a later condition takes
+ * precedence and every branch keeps the base classes it does not replace.
+ */
+function classConditionsExpr(conditions: readonly ClassCondition[]): string {
+  const base = [...new Set(conditions.flatMap((c) => c.whenFalse))];
+  const groups: { states: StateVar[]; on: string[]; key: string }[] = [];
+  for (const condition of conditions) {
+    const on = [...new Set([...condition.whenTrue, ...base.filter((cls) => !condition.whenFalse.includes(cls))])];
+    const key = on.join(' ');
+    const existing = groups.find((g) => g.key === key);
+    if (existing) {
+      if (!existing.states.includes(condition.state)) existing.states.push(condition.state);
+    } else groups.push({ states: [condition.state], on, key });
+  }
+  let expr = jsString(base.join(' '));
+  for (const group of groups) {
+    const test = group.states.length === 1 ? (group.states[0]?.name ?? 'false') : `(${group.states.map((s) => s.name).join(' || ')})`;
+    expr = `${test} ? ${jsString(group.on.join(' '))} : ${expr}`;
+  }
+  return expr;
+}
+
 function classNameAttr(staticClasses: readonly string[], dynamics: readonly string[]): JsxAttrValue | null {
   const staticText = staticClasses.join(' ');
   if (dynamics.length === 0) return staticText.length === 0 ? null : { kind: 'string', value: staticText };
@@ -140,6 +211,13 @@ function propValueCode(value: PropValue): string {
 function placeholderText(resolution: Extract<AssetResolution, { kind: 'placeholder' }>): string {
   const authorization = resolution.reason.includes('authoriz');
   return `Placeholder: ${resolution.assetKind} ${authorization ? 'not authorized' : 'not reproduced'} (${resolution.assetId})`;
+}
+
+/** Route the node links to when it renders as a `<Link>`, else null. */
+function routerLinkOf(gn: GenNode, ctx: RenderContext, scope: ScopeState): string | null {
+  if (gn.renderedTag !== 'a') return null;
+  if (scope.component !== null) return scope.component.routerLinks.has(gn.path) ? (ctx.routeOf?.(gn.node) ?? null) : null;
+  return ctx.routeOf?.(gn.node) ?? null;
 }
 
 /** Render a node and its subtree. */
@@ -162,26 +240,27 @@ function renderNode(gn: GenNode, ctx: RenderContext, scope: ScopeState): JsxChil
   else if (tag === 'img') resolution = ctx.assets.resolveImage(gn.node);
   const placeholder = resolution?.kind === 'placeholder' ? resolution : null;
   if (placeholder) ctx.assets.recordPlaceholder(placeholder, scope.file);
-  const renderedTag = placeholder ? 'div' : gn.renderedTag;
+  const route = placeholder ? null : routerLinkOf(gn, ctx, scope);
+  const isLink = route !== null || (scope.component !== null && scope.component.routerLinks.has(gn.path) && gn.renderedTag === 'a');
+  const renderedTag = placeholder ? 'div' : isLink ? 'Link' : gn.renderedTag;
+  if (isLink) scope.router.add('Link');
 
   // attributes
   const attrs: [string, JsxAttrValue][] = [];
   const captured = keptAttributes(gn.node, gn.renderedTag);
   const visible = gn.perViewport.some((n) => n !== null && n.box !== null);
-  const conditions: ReadonlyMap<string, AttrCondition> = behavior?.attrConditions ?? new Map<string, AttrCondition>();
+  const conditions: ReadonlyMap<string, readonly AttrCondition[]> = behavior?.attrConditions ?? new Map<string, AttrCondition[]>();
   const seen = new Set<string>([...captured.keys(), ...conditions.keys()]);
   for (const name of [...seen].sort()) {
     if (name === 'hidden' && visible) continue;
     if (placeholder && (name === 'alt' || name === 'width' || name === 'height' || name === 'loading')) continue;
     if (behavior?.detailsState && name === 'open') continue;
+    if (isLink && name === 'href') continue;
     const condition = conditions.get(name);
     const bound = binding?.attrs.get(name);
     const jsxName = jsxAttrName(name);
-    if (condition) {
-      const whenTrue = condition.whenTrue === null ? 'undefined' : jsString(condition.whenTrue);
-      const whenFalse = condition.whenFalse === null ? 'undefined' : jsString(condition.whenFalse);
-      if (BOOLEAN_ATTRIBUTES.has(name)) attrs.push([jsxName, { kind: 'expr', code: `${condition.state.name} ? ${condition.whenTrue === null ? 'false' : 'true'} : ${condition.whenFalse === null ? 'false' : 'true'}` }]);
-      else attrs.push([jsxName, { kind: 'expr', code: `${condition.state.name} ? ${whenTrue} : ${whenFalse}` }]);
+    if (condition !== undefined && condition.length > 0) {
+      attrs.push([jsxName, { kind: 'expr', code: attrConditionExpr(name, condition) }]);
       continue;
     }
     if (bound !== undefined) {
@@ -197,7 +276,11 @@ function renderNode(gn: GenNode, ctx: RenderContext, scope: ScopeState): JsxChil
     } else if (name === 'value' && tag === 'option') attrs.push(['value', { kind: 'string', value }]);
     else attrs.push([jsxName, { kind: 'string', value }]);
   }
-  if (binding?.link !== undefined && gn.renderedTag === 'a') {
+  if (isLink) {
+    // The href is a prop (varying between instances) or the route the link resolved to; either way it is the Link's `to`.
+    const bound = binding?.link !== undefined ? `${binding.link}.href` : binding?.attrs.get('href');
+    attrs.push(['to', bound !== undefined ? { kind: 'expr', code: bound } : { kind: 'string', value: route ?? captured.get('href') ?? '/' }]);
+  } else if (binding?.link !== undefined && gn.renderedTag === 'a') {
     const index = attrs.findIndex(([n]) => n === 'href');
     const bound: [string, JsxAttrValue] = ['href', { kind: 'expr', code: `${binding.link}.href` }];
     if (index >= 0) attrs[index] = bound;
@@ -229,23 +312,24 @@ function renderNode(gn: GenNode, ctx: RenderContext, scope: ScopeState): JsxChil
     const initial: JsxAttrValue | null =
       binding?.text !== undefined
         ? { kind: 'expr', code: binding.text }
-        : behavior?.textCondition
-          ? { kind: 'expr', code: conditionExpr(behavior.textCondition.state, behavior.textCondition.whenTrue, behavior.textCondition.whenFalse) }
+        : behavior !== undefined && behavior.textConditions.length > 0
+          ? { kind: 'expr', code: textConditionExpr(behavior.textConditions) }
           : text !== null && text.length > 0
             ? { kind: 'string', value: text }
             : null;
     if (initial) attrs.push(['defaultValue', initial]);
   }
+  if (behavior?.form?.noValidate != null && !attrs.some(([n]) => n === 'noValidate')) attrs.push(['noValidate', { kind: 'true' }]);
   attrs.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 
   // classes
   const classes = ctx.classesOf(gn);
   const removed = new Set<string>();
   const dynamics: string[] = [];
-  for (const condition of behavior?.classConditions ?? []) {
-    for (const cls of condition.whenFalse) removed.add(cls);
-    dynamics.push(conditionExpr(condition.state, condition.whenTrue.join(' '), condition.whenFalse.join(' ')));
-  }
+  const classConditions = behavior?.classConditions ?? [];
+  for (const condition of classConditions) for (const cls of condition.whenFalse) removed.add(cls);
+  if (classConditions.length === 1 && classConditions[0] !== undefined) dynamics.push(conditionExpr(classConditions[0].state, classConditions[0].whenTrue.join(' '), classConditions[0].whenFalse.join(' ')));
+  else if (classConditions.length > 1) dynamics.push(classConditionsExpr(classConditions));
   let staticClasses = (variantNode ? variantNode.common : classes.classes).filter((cls) => !removed.has(cls));
   if (variantNode) dynamics.unshift(`VARIANT_CLASSES[variant].${variantNode.key}`);
   if (behavior) staticClasses = [...staticClasses, ...behavior.extraClasses];
@@ -269,7 +353,16 @@ function renderNode(gn: GenNode, ctx: RenderContext, scope: ScopeState): JsxChil
     ordered.push(['open', { kind: 'expr', code: behavior.detailsState.name }]);
     ordered.push(['onToggle', { kind: 'expr', code: `(event) => ${behavior.detailsState.setter}(event.currentTarget.open)` }]);
   }
-  if (behavior?.clickToggle) ordered.push(['onClick', { kind: 'expr', code: `() => ${behavior.clickToggle.setter}((value) => !value)` }]);
+  if (behavior?.clickToggle) {
+    const state = behavior.clickToggle;
+    if (state.mode === 'select') {
+      const others = (ctx.behavior.stateVars.get(scope.file) ?? []).filter((v) => v !== state && v.mode === 'select' && v.group === state.group);
+      ordered.push(['onClick', { kind: 'expr', code: others.length === 0 ? `() => ${state.setter}(true)` : `() => {
+${[state, ...others].map((v) => `  ${v.setter}(${v === state ? 'true' : 'false'});`).join('\n')}
+}` }]);
+    } else ordered.push(['onClick', { kind: 'expr', code: `() => ${state.setter}((value) => !value)` }]);
+  }
+  if (behavior?.form && renderedTag === 'form') ordered.push(['onSubmit', { kind: 'expr', code: behavior.form.handler }]);
 
   // children
   const children: JsxChild[] = [];
@@ -280,7 +373,7 @@ function renderNode(gn: GenNode, ctx: RenderContext, scope: ScopeState): JsxChil
     const text = gn.node.text;
     if (binding?.text !== undefined) children.push({ kind: 'expr', code: binding.text });
     else if (binding?.link !== undefined && gn.renderedTag === 'a') children.push({ kind: 'expr', code: `${binding.link}.label` });
-    else if (behavior?.textCondition) children.push({ kind: 'expr', code: conditionExpr(behavior.textCondition.state, behavior.textCondition.whenTrue, behavior.textCondition.whenFalse) });
+    else if (behavior !== undefined && behavior.textConditions.length > 0) children.push({ kind: 'expr', code: textConditionExpr(behavior.textConditions) });
     else if (text !== null && text.length > 0) children.push({ kind: 'text', value: text });
     for (const child of gn.children) children.push(...renderNode(child, ctx, scope));
   }
@@ -327,7 +420,30 @@ function renderUsage(gn: GenNode, plan: ComponentPlan, instance: ComponentPlan['
   return element(plan.name, attrs, [], true);
 }
 
-function stateDeclarations(vars: readonly StateVar[]): string[] {
+function formHandler(form: FormBehavior): string[] {
+  const lines: string[] = [];
+  lines.push(`  // ${commentText(`submit on ${form.describe} (${form.transitionIds.join(', ')}): validation runs per control with checkValidity(); backend call not reproduced; wire your API here`)}`);
+  lines.push(`  const ${form.handler} = (event: FormEvent<HTMLFormElement>): void => {`);
+  lines.push('    event.preventDefault();');
+  lines.push('    const form = event.currentTarget;');
+  const valids: string[] = [];
+  form.controls.forEach((control, index) => {
+    const name = `valid${(index + 1).toString().padStart(2, '0')}`;
+    valids.push(name);
+    lines.push(`    // ${commentText(control.describe)}${control.messages.length > 0 ? `: ${commentText(control.messages.map((m) => JSON.stringify(m)).join(', '))}` : ''}`);
+    lines.push(`    const ${name} = controlValidity(form, ${control.key === null ? 'null' : jsString(control.key)}, ${jsString(control.path)});`);
+    lines.push(`    ${control.state.setter}(!${name});`);
+  });
+  if (form.invalid !== null || form.submitted !== null) {
+    lines.push(`    const valid = ${valids.length > 0 ? `${valids.join(' && ')} && ` : ''}form.checkValidity();`);
+    if (form.invalid !== null) lines.push(`    ${form.invalid.setter}(!valid);`);
+    if (form.submitted !== null) lines.push(`    ${form.submitted.setter}(valid);`);
+  }
+  lines.push('  };');
+  return lines;
+}
+
+function stateDeclarations(vars: readonly StateVar[], forms: readonly FormBehavior[], title: string | undefined): string[] {
   const lines: string[] = [];
   for (const state of vars) {
     lines.push(`  // ${commentText(state.description)}`);
@@ -347,13 +463,22 @@ function stateDeclarations(vars: readonly StateVar[]): string[] {
     lines.push('    };');
     lines.push(`  }, [${state.name}]);`);
   }
+  for (const form of forms) lines.push(...formHandler(form));
+  if (title !== undefined) {
+    lines.push('  // The document title the scan recorded for this page.');
+    lines.push('  useEffect(() => {');
+    lines.push(`    document.title = ${jsString(title)};`);
+    lines.push('  }, []);');
+  }
   return lines;
 }
 
-function reactImport(vars: readonly StateVar[]): string | null {
-  if (vars.length === 0) return null;
-  const names = ['useState'];
-  if (vars.some((v) => v.escapeTransitionId !== null)) names.unshift('useEffect');
+function reactImport(vars: readonly StateVar[], forms: readonly FormBehavior[], title: string | undefined): string | null {
+  const names: string[] = [];
+  if (vars.some((v) => v.escapeTransitionId !== null) || title !== undefined) names.push('useEffect');
+  if (vars.length > 0) names.push('useState');
+  if (forms.length > 0) names.push('type FormEvent');
+  if (names.length === 0) return null;
   return `import { ${names.join(', ')} } from 'react';`;
 }
 
@@ -361,19 +486,29 @@ function fileHeader(ctx: RenderContext, what: string): string[] {
   return [`// Generated by UI DNA from scan ${commentText(ctx.scanId)}: ${commentText(what)}.`, '// Names are placeholders; data-uidna-path attributes are a verification aid you may strip.'];
 }
 
-/** Render a section file. */
-export function renderSection(section: SectionPlan, ctx: RenderContext): RenderedFile {
-  const scope: ScopeState = { file: section.file, component: null, pathAttr: (node) => ({ kind: 'string', value: node.path }), imports: new Set() };
+function routerImport(scope: ScopeState): string | null {
+  if (scope.router.size === 0) return null;
+  return `import { ${[...scope.router].sort().join(', ')} } from 'react-router-dom';`;
+}
+
+/** Render a section or page file. */
+export function renderSection(section: SectionPlan, ctx: RenderContext, options: SectionRenderOptions = {}): RenderedFile {
+  const scope: ScopeState = { file: section.file, component: null, pathAttr: (node) => ({ kind: 'string', value: node.path }), imports: new Set(), router: new Set() };
   const roots = section.roots.flatMap((root) => renderNode(root, ctx, scope));
   const vars = ctx.behavior.stateVars.get(section.file) ?? [];
-  const lines: string[] = [...fileHeader(ctx, `${section.name.toLowerCase()} section of the page`)];
-  const react = reactImport(vars);
+  const forms = ctx.behavior.forms.get(section.file) ?? [];
+  const lines: string[] = [...fileHeader(ctx, options.doc ?? `${section.name.toLowerCase()} section of the page`)];
+  const react = reactImport(vars, forms, options.title);
   if (react) lines.push(react);
+  const router = routerImport(scope);
+  if (router) lines.push(router);
   for (const name of [...scope.imports].sort()) lines.push(`import { ${name} } from '../components/${name}';`);
+  if (forms.length > 0) lines.push(`import { controlValidity } from '${VALIDITY_IMPORT}';`);
   lines.push('');
-  lines.push(`/** ${section.name} landmark(s): ${section.roots.map((r) => `<${r.renderedTag}> at path ${r.path || '(body)'}`).join(', ')}. */`);
+  if (section.kind === 'page') lines.push(`/** ${commentText(options.doc ?? `Page ${section.name}`)}: ${section.roots.map((r) => `<${r.renderedTag}> at path ${r.path || '(body)'}`).join(', ') || 'no own content (everything is in the shared layout)'}. */`);
+  else lines.push(`/** ${section.name} landmark(s): ${section.roots.map((r) => `<${r.renderedTag}> at path ${r.path || '(body)'}`).join(', ')}. */`);
   lines.push(`export function ${section.name}() {`);
-  lines.push(...stateDeclarations(vars));
+  lines.push(...stateDeclarations(vars, forms, options.title));
   lines.push('  return (');
   if (roots.length === 1 && roots[0] !== undefined) lines.push(...printJsx(roots[0], '    '));
   else {
@@ -398,13 +533,18 @@ export function renderComponent(plan: ComponentPlan, ctx: RenderContext): Render
       return { kind: 'expr', code: `\`\${uidnaPath}/${rel}\`` };
     },
     imports: new Set(),
+    router: new Set(),
   };
   const body = renderNode(plan.primary, ctx, scope);
   const vars = ctx.behavior.stateVars.get(plan.file) ?? [];
+  const forms = ctx.behavior.forms.get(plan.file) ?? [];
   const lines: string[] = [...fileHeader(ctx, `component ${plan.generatedName} (${plan.definitionId}, ${plan.instances.length} instances)`)];
-  const react = reactImport(vars);
+  const react = reactImport(vars, forms, undefined);
   if (react) lines.push(react);
+  const router = routerImport(scope);
+  if (router) lines.push(router);
   for (const name of [...scope.imports].sort()) lines.push(`import { ${name} } from './${name}';`);
+  if (forms.length > 0) lines.push(`import { controlValidity } from '${VALIDITY_IMPORT}';`);
   lines.push('');
   const variantType = `${plan.name}Variant`;
   if (plan.variants) {
@@ -437,7 +577,7 @@ export function renderComponent(plan: ComponentPlan, ctx: RenderContext): Render
   if (plan.variants) params.push(`variant = ${jsString(plan.variants.defaultId)}`);
   lines.push(`/** ${commentText(plan.generatedName)}: ${plan.instances.length} instances at ${plan.instances.map((i) => i.root.path).join(', ')}. */`);
   lines.push(`export function ${plan.name}({ ${params.join(', ')} }: ${plan.name}Props) {`);
-  lines.push(...stateDeclarations(vars));
+  lines.push(...stateDeclarations(vars, forms, undefined));
   lines.push('  return (');
   for (const root of body) lines.push(...printJsx(root, '    '));
   lines.push('  );');
@@ -446,7 +586,7 @@ export function renderComponent(plan: ComponentPlan, ctx: RenderContext): Render
   return { file: plan.file, code: lines.join('\n') };
 }
 
-/** Render `src/App.tsx`. */
+/** Render `src/App.tsx` for the single-page layout. */
 export function renderApp(sections: readonly SectionPlan[], ctx: RenderContext): RenderedFile {
   const lines: string[] = [...fileHeader(ctx, 'application root')];
   for (const section of sections) lines.push(`import { ${section.name} } from './sections/${section.name}';`);
@@ -460,6 +600,61 @@ export function renderApp(sections: readonly SectionPlan[], ctx: RenderContext):
     for (const section of sections) lines.push(`      <${section.name} />`);
     lines.push('    </>');
   }
+  lines.push('  );');
+  lines.push('}');
+  lines.push('');
+  return { file: 'src/App.tsx', code: lines.join('\n') };
+}
+
+/** Render a layout file: the hoisted header and footer around an `<Outlet />`. */
+export function renderLayout(layout: LayoutPlan, scanId: string): RenderedFile {
+  const lines: string[] = [`// Generated by UI DNA from scan ${commentText(scanId)}: layout ${commentText(layout.id)} shared by pages ${commentText(layout.pageIds.join(', '))}.`, '// Names are placeholders; data-uidna-path attributes are a verification aid you may strip.'];
+  lines.push("import { Outlet } from 'react-router-dom';");
+  if (layout.header) lines.push(`import { ${layout.headerName} } from '../sections/${layout.headerName}';`);
+  if (layout.footer) lines.push(`import { ${layout.footerName} } from '../sections/${layout.footerName}';`);
+  lines.push('');
+  const parts = [...(layout.header ? ['header'] : []), ...(layout.footer ? ['footer'] : [])].join(' and ');
+  lines.push(`/** ${parts.charAt(0).toUpperCase()}${parts.slice(1)} rendered once from page ${commentText(layout.sourcePageId)} around the routed page. */`);
+  lines.push(`export function ${layout.name}() {`);
+  lines.push('  return (');
+  lines.push('    <>');
+  if (layout.header) lines.push(`      <${layout.headerName} />`);
+  lines.push('      <Outlet />');
+  if (layout.footer) lines.push(`      <${layout.footerName} />`);
+  lines.push('    </>');
+  lines.push('  );');
+  lines.push('}');
+  lines.push('');
+  return { file: layout.file, code: lines.join('\n') };
+}
+
+/** Render `src/App.tsx` with a `<BrowserRouter>` and one `<Route>` per page, grouped under their layouts. */
+export function renderRouterApp(site: SitePlan, scanId: string): RenderedFile {
+  const lines: string[] = [`// Generated by UI DNA from scan ${commentText(scanId)}: application root with react-router routes for ${site.pages.length} page(s).`, '// Names are placeholders; data-uidna-path attributes are a verification aid you may strip.'];
+  lines.push("import { BrowserRouter, Route, Routes } from 'react-router-dom';");
+  for (const layout of site.layouts) lines.push(`import { ${layout.name} } from './layouts/${layout.name}';`);
+  for (const page of site.pages) lines.push(`import { ${page.name} } from './pages/${page.name}';`);
+  lines.push('');
+  lines.push('/** The scanned pages, routed by the patterns the scan recorded (see README "Pages and routes"). */');
+  lines.push('export function App() {');
+  lines.push('  return (');
+  lines.push('    <BrowserRouter>');
+  lines.push('      <Routes>');
+  const patterns = new Set(site.pages.map((p) => p.route));
+  const route = (page: PagePlan, indent: string): string[] => {
+    const out = [`${indent}<Route path=${jsString(page.route)} element={<${page.name} />} />`];
+    const alias = routeAlias(page.route);
+    if (alias !== null && !patterns.has(alias)) out.push(`${indent}<Route path=${jsString(alias)} element={<${page.name} />} />`);
+    return out;
+  };
+  for (const layout of site.layouts) {
+    lines.push(`        <Route element={<${layout.name} />}>`);
+    for (const page of site.pages) if (page.layout?.id === layout.id) lines.push(...route(page, '          '));
+    lines.push('        </Route>');
+  }
+  for (const page of site.pages) if (page.layout === null) lines.push(...route(page, '        '));
+  lines.push('      </Routes>');
+  lines.push('    </BrowserRouter>');
   lines.push('  );');
   lines.push('}');
   lines.push('');

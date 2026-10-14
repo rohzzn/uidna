@@ -7,6 +7,14 @@
  * transition with no node-level difference yields an `unknown` effect that
  * says so, and a text change (which has no effect kind of its own) is an
  * `unknown` effect carrying the measured values.
+ *
+ * Form facts are diffed too: a control gaining a value (a `fill` action or a
+ * script filling it) is a `set-attribute` on `value` that never carries the
+ * value itself; a native validity change is reported with the browser's
+ * message; error elements that appear carry their message on the `show`
+ * effect. A transition that navigated to another crawled page yields one
+ * `navigate` effect pointing at the link, because diffing the nodes of two
+ * different pages would describe nothing a rule could reproduce.
  */
 import type { ActionTarget, BehaviorEffect, BehaviorRule, ObservedProvenance, Transition, UiNode, UiState } from '@rohzzn/uidna-schema';
 import { stableStringify } from '../domain/digest.js';
@@ -50,10 +58,47 @@ function changedProperties(a: Readonly<Record<string, string>> | undefined, b: R
   return [...keys].filter((key) => a?.[key] !== b?.[key]).sort();
 }
 
+/** Tags whose `value` attribute is a control value (the same set the capture attaches `form` facts to). */
+const FORM_CONTROL_TAGS = new Set(['input', 'select', 'textarea', 'button']);
+
+/**
+ * True when the node is a form control: one the capture reported `form` facts
+ * for, or one of the control tags. The tag check keeps control values out of
+ * rules when the facts are missing (an older capture, or a capture whose form
+ * facts could not be read and said so in its limitations).
+ */
+function isFormControl(node: UiNode): boolean {
+  return node.form !== undefined || FORM_CONTROL_TAGS.has(node.tag.toLowerCase());
+}
+
+/** Effects from the `form` facts of a control: value presence and native validity. */
+function formEffects(before: UiNode, after: UiNode, where: { targetNodeId: string; targetNodePath: string }, valueReported: boolean, valueDetails: string): BehaviorEffect[] {
+  const effects: BehaviorEffect[] = [];
+  const fromForm = before.form;
+  const toForm = after.form;
+  if (fromForm === undefined || toForm === undefined) return effects;
+  if (!valueReported && fromForm.hasValue !== toForm.hasValue) {
+    effects.push({ kind: 'set-attribute', attribute: 'value', ...where, details: toForm.hasValue ? valueDetails : 'value cleared' });
+  }
+  if (fromForm.valid !== null && toForm.valid !== null && fromForm.valid !== toForm.valid) {
+    const message = toForm.valid ? null : toForm.validationMessage;
+    effects.push({
+      kind: 'unknown',
+      from: fromForm.valid ? 'valid' : 'invalid',
+      to: toForm.valid ? 'valid' : 'invalid',
+      ...where,
+      details: message === null || message.length === 0 ? 'native constraint validity changed' : `native constraint validity changed: ${message}`,
+    });
+  }
+  return effects;
+}
+
 /** Effects for one node path present in both states. */
-function nodeEffects(before: UiNode, after: UiNode, from: UiState, to: UiState, isTarget: boolean): BehaviorEffect[] {
+function nodeEffects(before: UiNode, after: UiNode, from: UiState, to: UiState, isTarget: boolean, action: Transition['action']): BehaviorEffect[] {
   const effects: BehaviorEffect[] = [];
   const where = { targetNodeId: after.id, targetNodePath: after.path };
+  const valueDetails = isTarget && action.type === 'fill' ? 'synthetic value typed' : 'control gained a value';
+  let valueReported = false;
   if (before.tag !== after.tag) {
     // A different element now sits at this path: the old one is gone and a new one appeared.
     // Diffing their attributes would compare unrelated elements.
@@ -79,6 +124,12 @@ function nodeEffects(before: UiNode, after: UiNode, from: UiState, to: UiState, 
       });
       continue;
     }
+    if (attribute === 'value' && (isFormControl(before) || isFormControl(after))) {
+      // A control's value is reported as a fact, never as text: synthetic or not, values are not copied into rules.
+      valueReported = true;
+      effects.push({ kind: 'set-attribute', attribute, ...where, details: toValue === undefined ? 'value cleared' : valueDetails });
+      continue;
+    }
     const kind: BehaviorEffect['kind'] = isTarget && isToggle(fromValue, toValue) ? 'toggle-attribute' : 'set-attribute';
     effects.push({
       kind,
@@ -89,8 +140,17 @@ function nodeEffects(before: UiNode, after: UiNode, from: UiState, to: UiState, 
       ...(fromValue === undefined ? { details: 'attribute added' } : toValue === undefined ? { details: 'attribute removed' } : {}),
     });
   }
+  effects.push(...formEffects(before, after, where, valueReported, valueDetails));
+  const textChanged = before.text !== after.text;
   if (before.visible !== after.visible) {
-    effects.push({ kind: after.visible ? 'show' : 'hide', ...where });
+    // An element that appears with new text (a validation message) carries that text on the show effect.
+    effects.push({
+      kind: after.visible ? 'show' : 'hide',
+      ...(textChanged && before.text !== null ? { from: before.text } : {}),
+      ...(textChanged && after.text !== null ? { to: after.text } : {}),
+      ...where,
+      ...(textChanged ? { details: 'own text changed' } : {}),
+    });
   } else if (before.visible && after.visible && effects.length === 0) {
     const styleBefore = from.styles[before.styleId];
     const styleAfter = to.styles[after.styleId];
@@ -103,7 +163,7 @@ function nodeEffects(before: UiNode, after: UiNode, from: UiState, to: UiState, 
       });
     }
   }
-  if (before.text !== after.text) {
+  if (textChanged && before.visible === after.visible) {
     // No effect kind describes a text change; it is reported as `unknown` with the
     // measured values rather than dropped, so the rule never claims "no difference".
     effects.push({
@@ -129,6 +189,18 @@ function bodyTarget(state: UiState): ActionTarget {
   };
 }
 
+/** The single effect of a transition that led to another crawled page. */
+function navigationEffect(transition: Transition, navigation: NonNullable<Transition['navigation']>, from: UiState | undefined): BehaviorEffect {
+  const target = transition.action.target;
+  return {
+    kind: 'navigate',
+    ...(from === undefined ? {} : { from: from.url }),
+    to: navigation.url,
+    ...(target === null ? {} : { targetNodeId: target.nodeId, targetNodePath: target.nodePath }),
+    details: navigation.url,
+  };
+}
+
 function compareStates(transition: Transition, from: UiState, to: UiState): BehaviorEffect[] {
   const effects: BehaviorEffect[] = [];
   if (from.url !== to.url) effects.push({ kind: 'navigate', from: from.url, to: to.url });
@@ -150,7 +222,7 @@ function compareStates(transition: Transition, from: UiState, to: UiState): Beha
     const before = beforeByPath.get(path);
     const after = afterByPath.get(path);
     if (before && after) {
-      effects.push(...nodeEffects(before, after, from, to, path === targetPath));
+      effects.push(...nodeEffects(before, after, from, to, path === targetPath, transition.action));
     } else if (after) {
       effects.push({ kind: 'show', targetNodeId: after.id, targetNodePath: after.path, details: 'node added' });
     } else if (before) {
@@ -176,10 +248,13 @@ export function deriveBehavior(states: readonly UiState[], transitions: readonly
     const from = byId.get(transition.from);
     const to = byId.get(transition.to);
     const target: ActionTarget = transition.action.target ?? (from ? bodyTarget(from) : { nodeId: 'body', nodePath: '', role: null, name: null, tag: 'body', nth: 0 });
+    const navigation = transition.navigation ?? null;
     const effects: BehaviorEffect[] =
-      from && to
-        ? compareStates(transition, from, to)
-        : [{ kind: 'unknown', details: `state ${from ? transition.to : transition.from} is not available for comparison` }];
+      navigation !== null
+        ? [navigationEffect(transition, navigation, from)]
+        : from && to
+          ? compareStates(transition, from, to)
+          : [{ kind: 'unknown', details: `state ${from ? transition.to : transition.from} is not available for comparison` }];
     const evidenceId = transition.provenance.evidenceId ?? from?.evidenceId;
     const provenance: ObservedProvenance = {
       kind: 'observed',
@@ -196,6 +271,7 @@ export function deriveBehavior(states: readonly UiState[], transitions: readonly
         type: transition.action.type,
         target,
         ...(transition.action.key === undefined ? {} : { key: transition.action.key }),
+        ...(transition.action.value === undefined ? {} : { value: transition.action.value }),
       },
       transitionId: transition.id,
       effects,

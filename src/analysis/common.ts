@@ -84,6 +84,25 @@ export function normalizeFontFamily(value: string): string {
     .join(', ');
 }
 
+/**
+ * Identity of a page for matching links against crawled pages: the URL without
+ * its fragment, with a normalized trailing slash. This is the same rule the
+ * crawler applies (`pageKey` in `src/application/scan.ts`); it is repeated here
+ * because the analysis layer must not import the scan workflow (that module
+ * imports the analysis layer, and a cycle would leave `assembleDna` undefined
+ * at load time). `pageKey.test.ts` checks that the two agree.
+ */
+export function pageKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    const path = parsed.pathname.endsWith('/') && parsed.pathname.length > 1 ? parsed.pathname.slice(0, -1) : parsed.pathname;
+    return `${parsed.origin}${path}${parsed.search}`;
+  } catch {
+    return url;
+  }
+}
+
 /** Distinct values preserving first-seen order. */
 export function distinct<T>(values: Iterable<T>): T[] {
   const seen = new Set<T>();

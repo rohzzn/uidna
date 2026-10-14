@@ -60,6 +60,31 @@ export interface SyntheticCaptureOptions {
   readonly extraNetwork?: readonly NetworkEntry[];
   /** Append an `<iframe>` and an inline `<svg>` to the footer to exercise limitations. */
   readonly withEmbeds?: boolean;
+  /** Document title. Default `FIXTURE_A_TITLE`. */
+  readonly title?: string;
+  /** Primary navigation links (text and href) replacing Fixture A's four fragment links; used to model crawled pages. */
+  readonly navLinks?: readonly { readonly text: string; readonly href: string }[];
+}
+
+/** A synthetic nav link. */
+interface NavLinkSpec {
+  readonly text: string;
+  readonly href: string;
+}
+
+/** Fixture A's primary navigation. */
+const DEFAULT_NAV_LINKS: readonly NavLinkSpec[] = [
+  { text: 'Features', href: '#features' },
+  { text: 'Pricing', href: '#pricing' },
+  { text: 'FAQ', href: '#faq' },
+  { text: 'Get started', href: '#start' },
+];
+
+/** Measured widths of Fixture A's nav links at 1280; other texts are estimated from their length. */
+const NAV_LINK_WIDTHS: Readonly<Record<string, number>> = { Features: 66, Pricing: 56, FAQ: 36, 'Get started': 88 };
+
+function navLinkWidth(text: string): number {
+  return NAV_LINK_WIDTHS[text] ?? Math.round(text.length * 8.5);
 }
 
 /* ------------------------------------------------------------------ spec */
@@ -291,7 +316,7 @@ function button(kind: 'primary' | 'secondary', text: string, href: string, w: nu
   };
 }
 
-function pageSpec(width: number, menuOpen: boolean, openFaq: number | undefined, withEmbeds: boolean): Spec {
+function pageSpec(width: number, menuOpen: boolean, openFaq: number | undefined, withEmbeds: boolean, navLinks: readonly NavLinkSpec[]): Spec {
   const phone = isPhone(width);
   const sectionPad = phone
     ? { 'padding-top': '32px', 'padding-right': '16px', 'padding-bottom': '32px', 'padding-left': '16px' }
@@ -326,7 +351,7 @@ function pageSpec(width: number, menuOpen: boolean, openFaq: number | undefined,
           'z-index': '10',
         }
       : { display: 'flex', 'align-items': 'center', gap: '24px', 'column-gap': '24px', 'row-gap': '24px' },
-    children: [navLink('Features', '#features', phone, 66), navLink('Pricing', '#pricing', phone, 56), navLink('FAQ', '#faq', phone, 36), navLink('Get started', '#start', phone, 88)],
+    children: navLinks.map((link) => navLink(link.text, link.href, phone, navLinkWidth(link.text))),
   };
 
   const footerChildren: Spec[] = [
@@ -935,7 +960,7 @@ export function buildFixtureACapture(options: SyntheticCaptureOptions = {}): Cap
   const stateId = options.stateId ?? 'st_01';
   const menuOpen = isPhone(width) && (options.menuOpen ?? false);
 
-  const laid = place(pageSpec(width, menuOpen, options.openFaq, options.withEmbeds ?? false), 0, 0, width, null);
+  const laid = place(pageSpec(width, menuOpen, options.openFaq, options.withEmbeds ?? false, options.navLinks ?? DEFAULT_NAV_LINKS), 0, 0, width, null);
   const { nodes, styles, roleTree } = assemble(laid);
   const documentHeight = Math.ceil(laid.box?.height ?? 0);
   const imgNode = nodes.find((n) => n.tag === 'img');
@@ -986,7 +1011,7 @@ export function buildFixtureACapture(options: SyntheticCaptureOptions = {}): Cap
 
   return {
     url,
-    title: FIXTURE_A_TITLE,
+    title: options.title ?? FIXTURE_A_TITLE,
     viewport,
     capturedAt,
     document: { width, height: documentHeight, scrollHeight: documentHeight },
@@ -1021,6 +1046,10 @@ export interface SyntheticScanOptions {
   /** State ids that are derived, with their parent and the transition that produced them. */
   readonly derived?: Readonly<Record<string, { parentStateId: string; viaTransitionId: string }>>;
   readonly toolVersion?: string;
+  /** Crawled pages (seed first) written to `scan.pages`; omitted for a single-page scan written before crawls. */
+  readonly pages?: ScanRecord['pages'];
+  /** Page id per state id; states not listed belong to the seed page (`pg_01`) when `pages` is set, else carry no page id. */
+  readonly pageIdByState?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -1034,8 +1063,10 @@ export function buildFixtureAScanRecord(options: SyntheticScanOptions = {}): Sca
   for (const [stateId, capture] of captures) {
     i += 1;
     const derived = options.derived?.[stateId];
+    const pageId = options.pageIdByState?.[stateId] ?? (options.pages === undefined ? undefined : 'pg_01');
     states.push({
       stateId,
+      ...(pageId === undefined ? {} : { pageId }),
       kind: derived ? 'derived' : 'base',
       parentStateId: derived?.parentStateId ?? null,
       viewport: capture.viewport,
@@ -1061,10 +1092,11 @@ export function buildFixtureAScanRecord(options: SyntheticScanOptions = {}): Sca
     browser: { mode: 'launch', name: 'chromium', version: '131.0' },
     viewports,
     pageId: 'pg_01',
+    ...(options.pages === undefined ? {} : { pages: options.pages.map((page) => ({ ...page })) }),
     status: 'captured',
     budget: {
-      limits: { timeMs: 180_000, pages: 1, actions: 60, resources: 400 },
-      used: { timeMs: 4200, pages: 1, actions: 0, resources: 4 },
+      limits: { timeMs: 180_000, pages: options.pages?.length ?? 1, actions: 60, resources: 400 },
+      used: { timeMs: 4200, pages: options.pages?.length ?? 1, actions: 0, resources: 4 },
     },
     states,
     limitations: [],
@@ -1077,6 +1109,54 @@ export function buildFixtureAScanRecord(options: SyntheticScanOptions = {}): Sca
       report: null,
     },
   };
+}
+
+/** URL of the second page of the synthetic multi-page scan. */
+export const FIXTURE_A_FEATURES_URL = 'http://127.0.0.1:4173/features.html';
+
+/** Primary navigation of the synthetic multi-page scan: two same-origin pages (one crawled, one not), a fragment and a cross-origin link. */
+export const MULTI_PAGE_NAV_LINKS: readonly { readonly text: string; readonly href: string }[] = [
+  { text: 'Features', href: '/features.html' },
+  { text: 'Pricing', href: '/pricing.html' },
+  { text: 'FAQ', href: '#faq' },
+  { text: 'Status', href: 'https://example.com/status' },
+];
+
+/** The synthetic multi-page scan: captures, the scan record that lists its pages, and the link the crawl followed. */
+export interface MultiPageFixture {
+  readonly captures: Map<string, CapturedState>;
+  readonly scan: ScanRecord;
+  /** Node path (in the seed's 1280 capture) of the nav link that led the crawl to the features page. */
+  readonly featuresLinkPath: string;
+}
+
+/**
+ * A two-page crawl modelled on Fixture A: the seed (`pg_01`, `/`) and a
+ * features page (`pg_02`, `/features.html`) that the crawl reached through the
+ * seed's "Features" nav link, each captured at 1280 and 390 with the same
+ * header and footer. The nav also links to `/pricing.html` (same origin, not
+ * crawled), a fragment and a cross-origin status page.
+ */
+export function buildMultiPageFixture(): MultiPageFixture {
+  const common = { navLinks: MULTI_PAGE_NAV_LINKS };
+  const seedDesktop = buildFixtureACapture({ ...common, viewportWidth: 1280, stateId: 'st_01' });
+  const captures = new Map<string, CapturedState>([
+    ['st_01', seedDesktop],
+    ['st_02', buildFixtureACapture({ ...common, viewportWidth: 390, stateId: 'st_02' })],
+    ['st_03', buildFixtureACapture({ ...common, viewportWidth: 1280, stateId: 'st_03', url: FIXTURE_A_FEATURES_URL, title: 'Lumen — Features', openFaq: 0 })],
+    ['st_04', buildFixtureACapture({ ...common, viewportWidth: 390, stateId: 'st_04', url: FIXTURE_A_FEATURES_URL, title: 'Lumen — Features', openFaq: 0 })],
+  ]);
+  const featuresLink = seedDesktop.nodes.find((n) => n.tag === 'a' && n.attrs.href === '/features.html');
+  const featuresLinkPath = featuresLink?.path ?? '';
+  const scan = buildFixtureAScanRecord({
+    captures,
+    pages: [
+      { pageId: 'pg_01', url: FIXTURE_A_URL, depth: 0, discoveredVia: null, title: FIXTURE_A_TITLE },
+      { pageId: 'pg_02', url: FIXTURE_A_FEATURES_URL, depth: 1, discoveredVia: `pg_01:${featuresLinkPath}`, title: 'Lumen — Features' },
+    ],
+    pageIdByState: { st_01: 'pg_01', st_02: 'pg_01', st_03: 'pg_02', st_04: 'pg_02' },
+  });
+  return { captures, scan, featuresLinkPath };
 }
 
 /** Find a node by a simple selector: `#id`, `.class` or `tag`. First match in document order. */

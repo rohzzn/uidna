@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BehaviorRuleSchema, type Transition, type UiState } from '@rohzzn/uidna-schema';
+import { BehaviorRuleSchema, type Transition, type UiNode, type UiState } from '@rohzzn/uidna-schema';
 import type { CapturedState } from '../browser/types.js';
 import { deriveBehavior } from './behavior.js';
 import { buildFixtureACapture, findNode } from './testing.js';
@@ -115,5 +115,234 @@ describe('deriveBehavior', () => {
     const [missing] = deriveBehavior(states, [{ ...transition, id: 'tr_04', to: 'st_99' }]);
     expect(missing!.effects[0]).toMatchObject({ kind: 'unknown' });
     expect(missing!.effects[0]!.details).toContain('st_99');
+  });
+});
+
+/* ------------------------------------------------------- forms and pages */
+
+type FormFacts = NonNullable<UiNode['form']>;
+
+interface FormStateOptions {
+  readonly id: string;
+  readonly kind: 'base' | 'derived';
+  readonly parent: string | null;
+  /** Overrides for the name control's form facts, attributes and a11y props. */
+  readonly name: Partial<FormFacts> & { readonly attrs?: Record<string, string>; readonly a11y?: UiNode['a11y'] };
+  /** Text of the error element; null keeps it hidden and empty. */
+  readonly error: string | null;
+  readonly url?: string;
+}
+
+/** A minimal signup form: body > main > form > (input#name, p#name-error, button submit). */
+function formState(options: FormStateOptions): UiState {
+  const at = '2026-10-13T12:05:00.000Z';
+  const viewport = { width: 1280, height: 800 };
+  const node = (partial: Partial<UiNode> & Pick<UiNode, 'id' | 'path' | 'tag'>): UiNode => ({
+    parentId: null,
+    depth: partial.path === '' ? 0 : partial.path.split('/').length,
+    role: null,
+    name: null,
+    attrs: {},
+    text: null,
+    box: { x: 0, y: 0, width: 320, height: 40 },
+    styleId: 's_block',
+    a11y: {},
+    visible: true,
+    interactive: false,
+    inForm: false,
+    childIds: [],
+    ...partial,
+  });
+  const { attrs: nameAttrs, a11y: nameA11y, ...nameFacts } = options.name;
+  const form: FormFacts = { valid: false, validationMessage: 'Please fill out this field.', required: true, type: 'text', hasValue: false, ...nameFacts };
+  const nodes: UiNode[] = [
+    node({ id: 'n0', path: '', tag: 'body', childIds: ['n1'] }),
+    node({ id: 'n1', parentId: 'n0', path: '0', tag: 'main', role: 'main', childIds: ['n2'] }),
+    node({ id: 'n2', parentId: 'n1', path: '0/0', tag: 'form', role: 'form', attrs: { id: 'signup' }, childIds: ['n3', 'n4', 'n5'] }),
+    node({
+      id: 'n3',
+      parentId: 'n2',
+      path: '0/0/0',
+      tag: 'input',
+      role: 'textbox',
+      name: 'Full name',
+      attrs: { id: 'name', name: 'name', type: 'text', ...(nameAttrs ?? {}) },
+      a11y: { focusable: true, nth: 0, ...(nameA11y ?? {}) },
+      interactive: true,
+      inForm: true,
+      styleId: 's_input',
+      form,
+    }),
+    node({
+      id: 'n4',
+      parentId: 'n2',
+      path: '0/0/1',
+      tag: 'p',
+      role: options.error === null ? null : 'alert',
+      attrs: options.error === null ? { id: 'name-error', hidden: '' } : { id: 'name-error' },
+      text: options.error,
+      box: options.error === null ? null : { x: 0, y: 44, width: 320, height: 20 },
+      visible: options.error !== null,
+      inForm: true,
+      styleId: options.error === null ? 's_hidden' : 's_error',
+    }),
+    node({
+      id: 'n5',
+      parentId: 'n2',
+      path: '0/0/2',
+      tag: 'button',
+      role: 'button',
+      name: 'Create account',
+      attrs: { type: 'submit' },
+      text: 'Create account',
+      a11y: { focusable: true, nth: 0 },
+      interactive: true,
+      inForm: true,
+      styleId: 's_button',
+      form: { valid: true, validationMessage: null, required: false, type: 'submit', hasValue: false },
+    }),
+  ];
+  return {
+    id: options.id,
+    pageId: 'pg_01',
+    kind: options.kind,
+    parentStateId: options.parent,
+    url: options.url ?? 'http://127.0.0.1:4173/',
+    title: 'Lumen — Create your account',
+    viewport,
+    capturedAt: at,
+    evidenceId: 'ev_000000000005',
+    screenshot: null,
+    roleTreeDigest: `rt-${options.id}`,
+    domDigest: `dom-${options.id}`,
+    document: { width: 1280, height: 600, scrollHeight: 600 },
+    nodeCount: nodes.length,
+    nodes,
+    styles: {
+      s_block: { display: 'block' },
+      s_input: { display: 'inline-block', 'border-top-color': 'rgb(223, 227, 236)' },
+      s_hidden: { display: 'none' },
+      s_error: { display: 'block', color: 'rgb(176, 32, 32)' },
+      s_button: { display: 'inline-flex', 'background-color': 'rgb(47, 91, 234)' },
+    },
+    roleTree: [],
+    provenance: { kind: 'measured', source: 'computed-style', stateId: options.id, viewport, evidenceId: 'ev_000000000005', capturedAt: at, confidence: 1 },
+  };
+}
+
+function formTransition(id: string, from: string, to: string, action: Transition['action'], extra: Partial<Transition> = {}): Transition {
+  return {
+    id,
+    from,
+    action,
+    to,
+    sideEffects: false,
+    network: { requests: 0, nonGet: 0 },
+    revert: { method: 'reload', succeeded: true },
+    change: { domChanged: true, roleTreeChanged: true, screenshotChanged: true, changedNodeIds: [] },
+    provenance: { kind: 'observed', source: 'interaction', stateId: from, evidenceId: 'ev_000000000006', capturedAt: '2026-10-13T12:06:00.000Z', confidence: 1 },
+    ...extra,
+  };
+}
+
+const input = { nodeId: 'n3', nodePath: '0/0/0', role: 'textbox', name: 'Full name', tag: 'input', nth: 0 } as const;
+const submitButton = { nodeId: 'n5', nodePath: '0/0/2', role: 'button', name: 'Create account', tag: 'button', nth: 0 } as const;
+
+describe('deriveBehavior on forms and navigation', () => {
+  const empty = formState({ id: 'st_10', kind: 'base', parent: null, name: {}, error: null });
+  const filled = formState({ id: 'st_11', kind: 'derived', parent: 'st_10', name: { hasValue: true, valid: true, validationMessage: null }, error: null });
+  const invalid = formState({
+    id: 'st_12',
+    kind: 'derived',
+    parent: 'st_10',
+    name: { attrs: { 'aria-invalid': 'true', 'aria-errormessage': 'name-error' }, a11y: { invalid: true, errorMessage: 'Enter your full name.' } },
+    error: 'Enter your full name.',
+  });
+  const formStates = [empty, filled, invalid];
+
+  it('reports a fill as the control gaining a value, without the value, plus the validity change', () => {
+    const fill = formTransition('tr_10', 'st_10', 'st_11', { type: 'fill', target: { ...input }, value: 'Ada Lovelace' });
+    const [rule] = deriveBehavior(formStates, [fill]);
+    expect(BehaviorRuleSchema.safeParse(rule).success).toBe(true);
+    expect(rule!.event).toEqual({ type: 'fill', target: input, value: 'Ada Lovelace' });
+    expect(rule!.effects).toEqual([
+      { kind: 'set-attribute', attribute: 'value', targetNodeId: 'n3', targetNodePath: '0/0/0', details: 'synthetic value typed' },
+      { kind: 'unknown', from: 'invalid', to: 'valid', targetNodeId: 'n3', targetNodePath: '0/0/0', details: 'native constraint validity changed' },
+    ]);
+    expect(JSON.stringify(rule!.effects)).not.toContain('Ada');
+  });
+
+  it('never copies a value attribute of a form control into a rule, even when the capture reports it', () => {
+    const withValueAttr: UiState = { ...filled, id: 'st_13', nodes: filled.nodes.map((n) => (n.id === 'n3' ? { ...n, attrs: { ...n.attrs, value: 'Ada Lovelace' } } : n)) };
+    const fill = formTransition('tr_11', 'st_10', 'st_13', { type: 'fill', target: { ...input }, value: 'Ada Lovelace' });
+    const [rule] = deriveBehavior([...formStates, withValueAttr], [fill]);
+    const valueEffects = rule!.effects.filter((e) => e.attribute === 'value');
+    expect(valueEffects).toEqual([{ kind: 'set-attribute', attribute: 'value', targetNodeId: 'n3', targetNodePath: '0/0/0', details: 'synthetic value typed' }]);
+    expect(JSON.stringify(rule!.effects)).not.toContain('Ada');
+  });
+
+  it('keeps a control value out of the rule even when the capture carries no form facts for the control', () => {
+    // A capture whose form facts could not be read (its limitations say so) still never lends a value to a rule.
+    const strip = (state: UiState, id: string): UiState => ({
+      ...state,
+      id,
+      nodes: state.nodes.map((n) => {
+        if (n.id !== 'n3') return n;
+        const { form, ...rest } = n;
+        expect(form).toBeDefined();
+        return id === 'st_16' ? { ...rest, attrs: { ...rest.attrs, value: 'Ada Lovelace' } } : rest;
+      }),
+    });
+    const before = strip(empty, 'st_15');
+    const after = strip(filled, 'st_16');
+    const fill = formTransition('tr_17', 'st_15', 'st_16', { type: 'fill', target: { ...input }, value: 'Ada Lovelace' });
+    const [rule] = deriveBehavior([before, after], [fill]);
+    expect(BehaviorRuleSchema.safeParse(rule).success).toBe(true);
+    expect(rule!.effects).toEqual([{ kind: 'set-attribute', attribute: 'value', targetNodeId: 'n3', targetNodePath: '0/0/0', details: 'synthetic value typed' }]);
+    expect(JSON.stringify(rule!.effects)).not.toContain('Ada');
+  });
+
+  it('reports a script filling a control (a click) as the control gaining a value, and clearing it', () => {
+    const fillButton = formTransition('tr_14', 'st_10', 'st_11', { type: 'click', target: { ...submitButton } });
+    const [rule] = deriveBehavior(formStates, [fillButton]);
+    expect(rule!.effects.find((e) => e.attribute === 'value')).toEqual({ kind: 'set-attribute', attribute: 'value', targetNodeId: 'n3', targetNodePath: '0/0/0', details: 'control gained a value' });
+    const [cleared] = deriveBehavior(formStates, [formTransition('tr_15', 'st_11', 'st_10', { type: 'click', target: { ...submitButton } })]);
+    expect(cleared!.effects.find((e) => e.attribute === 'value')).toMatchObject({ kind: 'set-attribute', details: 'value cleared' });
+    expect(cleared!.effects.find((e) => e.kind === 'unknown')).toMatchObject({ from: 'valid', to: 'invalid', details: 'native constraint validity changed: Please fill out this field.' });
+  });
+
+  it('reports an empty submit as aria-invalid set on the control and the error element shown with its message', () => {
+    const submit = formTransition('tr_12', 'st_10', 'st_12', { type: 'submit', target: { ...submitButton } });
+    const [rule] = deriveBehavior(formStates, [submit]);
+    expect(rule!.event).toEqual({ type: 'submit', target: submitButton });
+    expect(rule!.effects).toEqual(
+      expect.arrayContaining([
+        { kind: 'set-attribute', attribute: 'aria-errormessage', to: 'name-error', targetNodeId: 'n3', targetNodePath: '0/0/0', details: 'attribute added' },
+        { kind: 'set-attribute', attribute: 'aria-invalid', to: 'true', targetNodeId: 'n3', targetNodePath: '0/0/0', details: 'attribute added' },
+        { kind: 'set-attribute', attribute: 'hidden', from: '', targetNodeId: 'n4', targetNodePath: '0/0/1', details: 'attribute removed' },
+        { kind: 'show', to: 'Enter your full name.', targetNodeId: 'n4', targetNodePath: '0/0/1', details: 'own text changed' },
+      ]),
+    );
+    // The message travels on the show effect only: no second `unknown` text effect, nothing about the untouched button.
+    expect(rule!.effects.filter((e) => e.kind === 'unknown')).toEqual([]);
+    expect(rule!.effects.filter((e) => e.targetNodeId === 'n4').map((e) => e.kind)).toEqual(['set-attribute', 'show']);
+    expect(rule!.effects.some((e) => e.targetNodeId === 'n5')).toBe(false);
+  });
+
+  it('reduces a transition that navigated to another crawled page to one navigate effect at the link', () => {
+    const features = formState({ id: 'st_14', kind: 'base', parent: null, name: {}, error: null, url: 'http://127.0.0.1:4173/features.html' });
+    const link = { nodeId: 'n9', nodePath: '0/1', role: 'link', name: 'Features', tag: 'a', nth: 0 } as const;
+    const navigated = formTransition('tr_13', 'st_10', 'st_14', { type: 'click', target: { ...link } }, { sideEffects: true, navigation: { toPageId: 'pg_02', url: 'http://127.0.0.1:4173/features.html' } });
+    const [rule] = deriveBehavior([...formStates, features], [navigated]);
+    expect(rule!.effects).toEqual([
+      { kind: 'navigate', from: 'http://127.0.0.1:4173/', to: 'http://127.0.0.1:4173/features.html', targetNodeId: 'n9', targetNodePath: '0/1', details: 'http://127.0.0.1:4173/features.html' },
+    ]);
+    expect(BehaviorRuleSchema.safeParse(rule).success).toBe(true);
+    // Without the navigation marker the same pair of states is diffed node by node, as before.
+    const [diffed] = deriveBehavior([...formStates, features], [{ ...navigated, navigation: null }]);
+    expect(diffed!.effects[0]).toEqual({ kind: 'navigate', from: 'http://127.0.0.1:4173/', to: 'http://127.0.0.1:4173/features.html' });
+    // A navigation whose landing state was not captured still names the target.
+    const [landingMissing] = deriveBehavior(formStates, [{ ...navigated, id: 'tr_16', to: 'st_99' }]);
+    expect(landingMissing!.effects).toEqual([{ kind: 'navigate', from: 'http://127.0.0.1:4173/', to: 'http://127.0.0.1:4173/features.html', targetNodeId: 'n9', targetNodePath: '0/1', details: 'http://127.0.0.1:4173/features.html' }]);
   });
 });

@@ -138,6 +138,12 @@ function readProperties(node: AxNodeData): { props: AxInfo['props']; controls: n
       case 'modal':
         if (typeof value === 'boolean') props.modal = value;
         break;
+      case 'invalid': {
+        // Chrome reports a token on every form control: "false", "true", "grammar" or "spelling" (observed on Chromium 156).
+        const invalid = readInvalid(value);
+        if (invalid !== undefined) props.invalid = invalid;
+        break;
+      }
       case 'controls':
         controls = (property.value.relatedNodes ?? []).map((related) => related.backendDOMNodeId);
         break;
@@ -146,6 +152,14 @@ function readProperties(node: AxNodeData): { props: AxInfo['props']; controls: n
     }
   }
   return { props, controls };
+}
+
+/** The AX `invalid` token as a boolean: `true`, `grammar` and `spelling` are invalid; `false` is valid; anything else is unknown. */
+export function readInvalid(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (value === 'true' || value === 'grammar' || value === 'spelling') return true;
+  if (value === 'false') return false;
+  return undefined;
 }
 
 function readTristate(value: unknown): boolean | 'mixed' | undefined {

@@ -2,6 +2,10 @@
  * Project generation: UI DNA document → React 19 + TypeScript + Tailwind 4 +
  * Vite 7 project. Deterministic, no LLM. The generated project builds with
  * `npm run build`; every element carries `data-uidna-path` for verification.
+ * Multi-page documents get react-router routes, a shared layout and one
+ * component per page; submit transitions become validated forms; captured
+ * JSON responses become typed mocks; every implemented transition gets a
+ * Playwright behavior test.
  */
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -12,12 +16,13 @@ import { silentProgress, type ProgressReporter } from '../domain/budget.js';
 import { isoNow, systemClock, type Clock } from '../domain/clock.js';
 import { toError, uidnaError } from '../domain/errors.js';
 import { err, ok, tryCatch, type Result } from '../domain/result.js';
-import { AssetRegistry, jsonAssets } from './assets.js';
-import { compareStrings } from './jsx.js';
-import { planBehavior } from './behavior.js';
+import { AssetRegistry, dataAssets, jsonAssets } from './assets.js';
+import { planBehavior, type BehaviorPlan, type BehaviorReport, type FormBehavior, type HoistedLocation } from './behavior.js';
 import { buildProject, installProject } from './build.js';
-import { planComponents } from './components.js';
-import { buildModel, walk, type GenNode } from './model.js';
+import { planComponents, type ComponentPlan, type ComponentPlanning } from './components.js';
+import { compareStrings } from './jsx.js';
+import { mockNames, renderDataMock, type DataMockInput } from './mocks.js';
+import { isAncestorPath, type GenNode, type GenerationModel } from './model.js';
 import {
   renderGitignore,
   renderIndexCss,
@@ -28,21 +33,28 @@ import {
   renderPackageJson,
   renderReadme,
   renderTsconfig,
+  renderValidityLib,
   renderViteConfig,
   type GeneratedManifest,
   type MockRecord,
+  type ProjectFeatures,
 } from './project.js';
-import { bodyClasses, makeScopeResolver, planSections, renderApp, renderComponent, renderSection, type RenderContext } from './render.js';
+import { bodyClasses, makeScopeResolver, planPageSections, planSections, renderApp, renderComponent, renderLayout, renderRouterApp, renderSection, type RenderContext, type SectionPlan } from './render.js';
+import { makeRouteResolver, planSite, type RouterMode } from './site.js';
 import { responsiveClasses, type NodeClasses } from './styles.js';
 import type { SkippedProperty } from './tailwind-map.js';
+import { renderBehaviorSpec, renderPlaywrightConfig, type BehaviorSpecSummary } from './tests.js';
 import { renderTokensCss, resolveTokens } from './tokens.js';
 
 export { buildProject, installProject, BUILD_TIMEOUT_MS, INSTALL_TIMEOUT_MS } from './build.js';
 export type { BuildOptions, BuildOutcome, InstallOutcome } from './build.js';
 export { classesFor, normalizeColor, arbitraryValue } from './tailwind-map.js';
 export type { TokenIndex, ClassMapping, SkippedProperty } from './tailwind-map.js';
-export type { GeneratedManifest, MockRecord } from './project.js';
+export type { GeneratedManifest, MockRecord, ProjectFeatures } from './project.js';
 export type { PlaceholderRecord } from './assets.js';
+export type { RouterMode, SitePlan, PagePlan, LayoutPlan } from './site.js';
+export type { BehaviorReport, TransitionTest, Expectation, FormBehavior } from './behavior.js';
+export type { BehaviorSpecSummary } from './tests.js';
 
 /** Input of `generateProject`. */
 export interface GenerateInput {
@@ -54,6 +66,10 @@ export interface GenerateInput {
   readonly install?: boolean;
   /** Run `npm run build` after install (default true). */
   readonly build?: boolean;
+  /** How pages are wired: `react-router` (default when the document has more than one page) or `none` (first page only). */
+  readonly router?: RouterMode;
+  /** Write Playwright behavior tests that replay every implemented transition (default true). */
+  readonly behaviorTests?: boolean;
   readonly clock?: Clock;
   readonly progress?: ProgressReporter;
   readonly signal?: AbortSignal;
@@ -65,6 +81,8 @@ const OptionsSchema = z.object({
   outDir: z.string().min(1),
   install: z.boolean().optional(),
   build: z.boolean().optional(),
+  router: z.enum(['none', 'react-router']).optional(),
+  behaviorTests: z.boolean().optional(),
   evidenceId: z.string().min(1),
 });
 
@@ -102,12 +120,30 @@ function insideDir(root: string, candidate: string): boolean {
   return abs === root || abs.startsWith(root + sep);
 }
 
+/** Read and parse the stored copies of the document's `data` assets (never throws; failures become reasons). */
+async function readDataAssets(dna: UiDnaDocument, scanDir: string): Promise<DataMockInput[]> {
+  const inputs: DataMockInput[] = [];
+  for (const asset of dataAssets(dna)) {
+    if (asset.localPath === undefined || !insideDir(scanDir, asset.localPath)) {
+      inputs.push({ asset, json: null, reason: asset.localPath === undefined ? 'no local copy was stored during the scan' : 'stored copy path escapes the scan directory' });
+      continue;
+    }
+    try {
+      const raw = await readFile(resolve(scanDir, asset.localPath), 'utf8');
+      inputs.push({ asset, json: JSON.parse(raw) as unknown, reason: null });
+    } catch (cause) {
+      inputs.push({ asset, json: null, reason: `stored copy could not be read as JSON: ${toError(cause, 'io').message}` });
+    }
+  }
+  return inputs;
+}
+
 /**
  * Generate a project from a UI DNA document. Writes the files, copies
  * authorized assets, then optionally installs and builds. Never throws.
  */
 export async function generateProject(input: GenerateInput): Promise<Result<GenerateRecord>> {
-  const options = OptionsSchema.safeParse({ scanDir: input.scanDir, outDir: input.outDir, install: input.install, build: input.build, evidenceId: input.evidenceId });
+  const options = OptionsSchema.safeParse({ scanDir: input.scanDir, outDir: input.outDir, install: input.install, build: input.build, router: input.router, behaviorTests: input.behaviorTests, evidenceId: input.evidenceId });
   if (!options.success) return err(uidnaError('validation', `invalid generate input: ${options.error.issues.map((i) => i.message).join('; ')}`));
   const validation = validateUiDna(input.dna);
   if (!validation.success) {
@@ -119,53 +155,140 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
   const progress = input.progress ?? silentProgress;
   const install = options.data.install ?? true;
   const build = options.data.build ?? true;
+  const behaviorTests = options.data.behaviorTests ?? true;
   const outDir = resolve(options.data.outDir);
   const scanDir = resolve(options.data.scanDir);
   const cancelled = (): Result<never> | null => (input.signal?.aborted === true ? err(uidnaError('cancelled', 'generation cancelled by caller')) : null);
 
   progress.report({ message: 'Building generation model', current: 1, total: 7 });
-  const modelResult = buildModel(dna);
-  if (!modelResult.ok) return modelResult;
-  const model = modelResult.value;
+  const usedNames = new Set<string>();
+  const siteResult = planSite(dna, options.data.router, usedNames);
+  if (!siteResult.ok) return siteResult;
+  const site = siteResult.value;
+  const multi = site.router === 'react-router';
   const tokens = resolveTokens(dna);
 
   const classCache = new Map<string, NodeClasses>();
-  const classesOf = (node: GenNode): NodeClasses => {
-    const cached = classCache.get(node.path);
-    if (cached) return cached;
-    const computed = responsiveClasses(node, model, tokens.index);
-    classCache.set(node.path, computed);
-    return computed;
-  };
+  const classesForModel =
+    (model: GenerationModel) =>
+    (node: GenNode): NodeClasses => {
+      const key = `${model.pageId}\u0000${node.path}`;
+      const cached = classCache.get(key);
+      if (cached) return cached;
+      const computed = responsiveClasses(node, model, tokens.index);
+      classCache.set(key, computed);
+      return computed;
+    };
 
   progress.report({ message: 'Planning components and behavior', current: 2, total: 7 });
-  const assets = new AssetRegistry(dna, model, scanDir);
-  const components = planComponents(dna, model, assets, classesOf);
-  const sections = planSections(model);
-  const resolver = makeScopeResolver(model, sections, components);
-  const behavior = planBehavior(model, dna.states.transitions, tokens.index, resolver);
-
-  const ctx: RenderContext = { model, tokens: tokens.index, assets, components, behavior, classesOf, scanId: dna.target.scanId };
-
-  progress.report({ message: 'Rendering sections and components', current: 3, total: 7 });
   const files = new Map<string, string>();
-  for (const plan of components.components) {
-    const rendered = renderComponent(plan, ctx);
-    files.set(rendered.file, rendered.code);
-  }
-  for (const section of sections) {
-    const rendered = renderSection(section, ctx);
-    files.set(rendered.file, rendered.code);
-  }
-  const app = renderApp(sections, ctx);
-  files.set(app.file, app.code);
-
+  const allSections: SectionPlan[] = [];
+  const componentPlans: ComponentPlan[] = [];
+  const rejectedComponents: { definitionId: string; generatedName: string; reason: string }[] = [];
+  const reports: BehaviorReport[] = [];
+  const forms: FormBehavior[] = [];
   const skipped: SkippedProperty[] = [];
-  walk(model.body, (node) => {
-    skipped.push(...classesOf(node).skipped);
-  });
+  const bodyClassNotes: string[] = [];
+  let registry: AssetRegistry | null = null;
+  let firstCtx: RenderContext | null = null;
+  let firstBody: string | null = null;
+  let singleSections: SectionPlan[] = [];
 
-  // Mocks from JSON assets.
+  for (const page of site.pages) {
+    const model = page.model;
+    const classesOf = classesForModel(model);
+    const assets: AssetRegistry = registry === null ? new AssetRegistry(dna, model, scanDir) : registry.forModel(model);
+    registry ??= assets;
+    const routeOf = makeRouteResolver(dna, site, page);
+    const planned = multi ? planPageSections(page) : { sections: planSections(model), hoisted: { header: [], footer: [] } };
+    const { sections, hoisted } = planned;
+    const layout = page.layout;
+    const isSource = layout !== null && layout.sourcePageId === page.page.id;
+    const hoistedList = [...hoisted.header, ...hoisted.footer];
+    const excludedRoots = isSource ? [] : hoistedList.map((root) => root.path);
+    const hoistedLookup = (path: string): HoistedLocation | null => {
+      if (layout === null || isSource) return null;
+      const root = hoistedList.find((r) => r.path === path || isAncestorPath(r.path, path));
+      if (root === undefined) return null;
+      const sourcePage = site.pages.find((p) => p.page.id === layout.sourcePageId);
+      if (sourcePage === undefined) return null;
+      const inHeader = hoisted.header.includes(root);
+      return { file: inHeader ? layout.headerFile : layout.footerFile, sectionName: inHeader ? layout.headerName : layout.footerName, sourcePageId: layout.sourcePageId, sourceModel: sourcePage.model };
+    };
+    const pageTransitions = dna.states.transitions.filter((t) => model.statesById.get(t.from)?.pageId === page.page.id);
+    // Components whose instances change together with nodes outside them are rendered inline so the
+    // state of a transition lives in one file; planning repeats with those definitions excluded.
+    const namesBefore = new Set(usedNames);
+    const excludedDefinitions = new Set<string>();
+    const planPage = (): { components: ComponentPlanning; behavior: BehaviorPlan } => {
+      usedNames.clear();
+      for (const name of namesBefore) usedNames.add(name);
+      const components = planComponents(dna, model, assets, classesOf, { usedNames, routeOf, skipAbsent: multi, excludedRoots, excludedDefinitions });
+      const resolver = makeScopeResolver(model, sections, components);
+      const behavior = planBehavior(model, pageTransitions, tokens.index, resolver, { routeOf, routeByPageId: site.routeByPageId, pageRoute: page.route, hoisted: hoistedLookup });
+      return { components, behavior };
+    };
+    let planned2 = planPage();
+    for (let pass = 0; pass < 4 && planned2.behavior.conflictingInstanceRoots.size > 0; pass += 1) {
+      const before = excludedDefinitions.size;
+      for (const root of planned2.behavior.conflictingInstanceRoots) {
+        const owner = planned2.components.instanceByPath.get(root);
+        if (owner) excludedDefinitions.add(owner.plan.definitionId);
+      }
+      if (excludedDefinitions.size === before) break;
+      planned2 = planPage();
+    }
+    const { components, behavior } = planned2;
+    const ctx: RenderContext = { model, tokens: tokens.index, assets, components, behavior, classesOf, scanId: dna.target.scanId, routeOf };
+
+    progress.report({ message: `Rendering ${multi ? `page ${page.page.id}` : 'sections and components'}`, current: 3, total: 7 });
+    for (const plan of components.components) {
+      const rendered = renderComponent(plan, ctx);
+      files.set(rendered.file, rendered.code);
+    }
+    for (const section of sections) {
+      const rendered = section.kind === 'page' ? renderSection(section, ctx, { title: model.pageTitle, doc: `page ${page.page.id} at route ${page.route}` }) : renderSection(section, ctx);
+      files.set(rendered.file, rendered.code);
+    }
+    const excluded = new Set(excludedRoots);
+    const visit = (node: GenNode): void => {
+      if (node.kind === 'skipped' || excluded.has(node.path)) return;
+      skipped.push(...classesOf(node).skipped);
+      for (const child of node.children) visit(child);
+    };
+    visit(model.body);
+
+    allSections.push(...sections);
+    componentPlans.push(...components.components);
+    rejectedComponents.push(...components.rejected);
+    reports.push(...behavior.reports);
+    for (const list of behavior.forms.values()) forms.push(...list);
+    const body = bodyClasses(ctx).join(' ');
+    if (firstCtx === null) {
+      firstCtx = ctx;
+      firstBody = body;
+      singleSections = sections;
+    } else if (body !== firstBody) {
+      bodyClassNotes.push(`page ${page.page.id} measured different <body> classes (${body || 'none'}); index.html carries the seed page's (${firstBody ?? 'none'})`);
+    }
+  }
+  if (firstCtx === null) return err(uidnaError('generate', 'no page was generated'));
+  const ctx = firstCtx;
+
+  if (multi) {
+    for (const layout of site.layouts) {
+      const rendered = renderLayout(layout, dna.target.scanId);
+      files.set(rendered.file, rendered.code);
+    }
+    const app = renderRouterApp(site, dna.target.scanId);
+    files.set(app.file, app.code);
+  } else {
+    const app = renderApp(singleSections, ctx);
+    files.set(app.file, app.code);
+  }
+  if (forms.length > 0) files.set('src/lib/validity.ts', renderValidityLib());
+
+  // Mocks: Phase 1 JSON assets stay in src/mocks/data.ts; captured responses (`data` assets) get one typed file each.
   const mockInputs: { asset: (typeof dna.assets)[number]; json: unknown; reason: string | null }[] = [];
   for (const asset of jsonAssets(dna)) {
     if (asset.localPath === undefined || !insideDir(scanDir, asset.localPath)) {
@@ -182,20 +305,42 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
   const mocksRendered = renderMocks(mockInputs);
   const mocks: MockRecord[] = mocksRendered?.mocks ?? [];
   if (mocksRendered) files.set('src/mocks/data.ts', mocksRendered.code);
+  const dataInputs = await readDataAssets(dna, scanDir);
+  const names = mockNames(dataInputs.map((d) => d.asset));
+  for (const dataInput of dataInputs) {
+    const name = names.get(dataInput.asset.id);
+    if (name === undefined) continue;
+    const rendered = renderDataMock(dataInput, name);
+    files.set(rendered.file, rendered.code);
+    mocks.push(rendered.record);
+  }
 
-  const lang = model.body.node.attrs.lang ?? 'en';
-  files.set('package.json', renderPackageJson(dna.target.scanId));
-  files.set('tsconfig.json', renderTsconfig());
+  // Behavior tests.
+  let behaviorSummary: BehaviorSpecSummary | null = null;
+  if (behaviorTests) {
+    const spec = renderBehaviorSpec(dna.target.scanId, reports);
+    files.set('playwright.config.ts', renderPlaywrightConfig());
+    files.set('tests/behavior.spec.ts', spec.code);
+    behaviorSummary = spec.summary;
+  }
+
+  const features: ProjectFeatures = { router: multi, behaviorTests };
+  const lang = ctx.model.body.node.attrs.lang ?? 'en';
+  files.set('package.json', renderPackageJson(dna.target.scanId, features));
+  files.set('tsconfig.json', renderTsconfig(features));
   files.set('vite.config.ts', renderViteConfig());
-  files.set('index.html', renderIndexHtml(model.pageTitle, lang, bodyClasses(ctx)));
+  files.set('index.html', renderIndexHtml(ctx.model.pageTitle, lang, bodyClasses(ctx)));
   files.set('src/main.tsx', renderMain());
   files.set('src/index.css', renderIndexCss());
-  files.set('src/styles/tokens.css', renderTokensCss(tokens, model, dna.target.scanId));
+  // Multi-page projects declare the breakpoints of every page, not only the seed page's: a page captured
+  // at a width the seed lacks would otherwise emit `md:` utilities Tailwind drops.
+  files.set('src/styles/tokens.css', renderTokensCss(tokens, ctx.model, dna.target.scanId, multi ? site.breakpoints : undefined));
   files.set('.gitignore', renderGitignore());
 
+  const assets = registry ?? ctx.assets;
   const copies = assets.copyList();
   const placeholders = [...assets.placeholders].sort((a, b) => compareStrings(a.file, b.file) || compareStrings(a.assetId, b.assetId));
-  const manifestComponents = components.components.map((plan) => ({ name: plan.name, file: plan.file, definitionId: plan.definitionId }));
+  const manifestComponents = componentPlans.map((plan) => ({ name: plan.name, file: plan.file, definitionId: plan.definitionId }));
   const allFiles = [...files.keys(), ...copies.map((c) => c.to), 'README.md', MANIFEST_FILE].sort();
   const manifest: GeneratedManifest = {
     scanId: dna.target.scanId,
@@ -203,23 +348,30 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
     components: manifestComponents,
     placeholders,
     mocks,
-    viewports: model.slots.map((slot) => ({ width: slot.width, height: slot.state.viewport.height, breakpoint: slot.breakpoint })),
+    viewports: ctx.model.slots.map((slot) => ({ width: slot.width, height: slot.state.viewport.height, breakpoint: slot.breakpoint })),
     files: allFiles,
+    router: site.router,
+    pages: site.pages.map((page) => ({ pageId: page.page.id, name: page.name, file: page.file, route: page.route })),
+    behaviorTests: behaviorSummary,
   };
   files.set(
     'README.md',
     renderReadme({
       scanId: dna.target.scanId,
       dnaVersion: dna.dnaVersion,
-      pageTitle: model.pageTitle,
-      model,
-      sections,
-      components,
+      pageTitle: ctx.model.pageTitle,
+      model: ctx.model,
+      sections: allSections,
+      components: { components: componentPlans, instanceByPath: new Map(), rejected: rejectedComponents },
       placeholders,
       mocks,
-      behavior,
+      behavior: { byPath: new Map(), stateVars: new Map(), forms: new Map(), reports, conflictingInstanceRoots: new Set() },
       tokens,
       skipped,
+      ...(multi ? { site } : { siteNotes: site.notes }),
+      forms,
+      behaviorTests: behaviorSummary,
+      bodyClassNotes,
     }),
   );
   files.set(MANIFEST_FILE, renderManifest(manifest));
@@ -300,7 +452,7 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
     generatedAt: isoNow(clock),
     evidenceId: options.data.evidenceId,
     files: allFiles,
-    components: components.components.map((plan) => ({ name: plan.name, file: plan.file, definitionId: plan.definitionId, instances: plan.instances.length })),
+    components: componentPlans.map((plan) => ({ name: plan.name, file: plan.file, definitionId: plan.definitionId, instances: plan.instances.length })),
     placeholders,
     mocks,
     install: record.install,

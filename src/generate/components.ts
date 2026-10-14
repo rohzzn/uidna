@@ -3,7 +3,7 @@
  * components, what their props are (declared props plus every text or
  * attribute that differs between instances) and which style variants exist.
  */
-import type { ComponentDefinition, UiDnaDocument } from '@rohzzn/uidna-schema';
+import type { ComponentDefinition, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
 import type { AssetRegistry } from './assets.js';
 import { keptAttributes } from './attrs.js';
 import { camelCase, compareStrings, pascalCase } from './jsx.js';
@@ -67,7 +67,23 @@ export interface ComponentPlan {
   readonly variants: VariantPlan | null;
   /** Bindings keyed by primary-instance absolute path. */
   readonly bindings: ReadonlyMap<string, NodeBinding>;
+  /** Primary-instance paths of `<a>` nodes rendered as react-router `<Link>` (every instance's href resolves to a generated page). */
+  readonly routerLinks: ReadonlySet<string>;
   readonly notes: readonly string[];
+}
+
+/** Options of `planComponents`. */
+export interface ComponentPlanningOptions {
+  /** Lower-cased names already taken (page names, components of other pages); the names chosen here are added. */
+  readonly usedNames?: Set<string>;
+  /** Route pattern a same-origin page link resolves to, or null (no router, or not a generated page). */
+  readonly routeOf?: (node: UiNode) => string | null;
+  /** Leave out definitions without any instance in the model's narrowest state instead of reporting them (multi-page documents). */
+  readonly skipAbsent?: boolean;
+  /** Instance roots under these paths belong to a layout shared from another page and are not planned here. */
+  readonly excludedRoots?: readonly string[];
+  /** Definitions rendered inline because a recorded transition changes their instances together with nodes outside them. */
+  readonly excludedDefinitions?: ReadonlySet<string>;
 }
 
 /** Result of planning. */
@@ -78,7 +94,7 @@ export interface ComponentPlanning {
   readonly rejected: readonly { readonly definitionId: string; readonly generatedName: string; readonly reason: string }[];
 }
 
-const RESERVED_COMPONENT_NAMES = new Set(['App', 'Header', 'Main', 'Footer', 'Fragment', 'React', 'Component', 'StrictMode']);
+const RESERVED_COMPONENT_NAMES = new Set(['App', 'Header', 'Main', 'Footer', 'Fragment', 'React', 'Component', 'StrictMode', 'Layout', 'Link', 'NavLink', 'Outlet', 'Route', 'Routes', 'BrowserRouter', 'Navigate']);
 
 /** Numeric, segment-wise path ordering. */
 export function comparePaths(a: string, b: string): number {
@@ -121,12 +137,14 @@ function componentName(definition: ComponentDefinition, used: Set<string>): stri
  * Plan the components of a document. `classesOf` must return the static
  * responsive classes of a node (used to detect style variants).
  */
-export function planComponents(dna: UiDnaDocument, model: GenerationModel, assets: AssetRegistry, classesOf: (node: GenNode) => NodeClasses): ComponentPlanning {
+export function planComponents(dna: UiDnaDocument, model: GenerationModel, assets: AssetRegistry, classesOf: (node: GenNode) => NodeClasses, options: ComponentPlanningOptions = {}): ComponentPlanning {
   const components: ComponentPlan[] = [];
   const rejected: { definitionId: string; generatedName: string; reason: string }[] = [];
   const instanceByPath = new Map<string, { plan: ComponentPlan; instance: ComponentInstancePlan }>();
   const claimed = new Map<string, string>();
-  const usedNames = new Set<string>();
+  const usedNames = options.usedNames ?? new Set<string>();
+  const excludedRoots = options.excludedRoots ?? [];
+  const excluded = (path: string): boolean => excludedRoots.some((root) => root === path || isAncestorPath(root, path));
   const definitions = [...dna.components.definitions].sort((a, b) => compareStrings(a.id, b.id));
 
   // First pass: eligibility and claimed roots (nested components need the full set of roots).
@@ -135,19 +153,24 @@ export function planComponents(dna: UiDnaDocument, model: GenerationModel, asset
     const reject = (reason: string): void => {
       rejected.push({ definitionId: definition.id, generatedName: definition.generatedName, reason });
     };
+    if (options.excludedDefinitions?.has(definition.id)) {
+      reject('rendered inline: a recorded transition changes its instances together with nodes outside the component, and the generator keeps that state in one file');
+      continue;
+    }
     if (definition.instanceCount < 2) {
       reject('fewer than two instances');
       continue;
     }
     const seen = new Set<string>();
     const instances = dna.components.instances
-      .filter((inst) => inst.definitionId === definition.id && inst.stateId === model.narrowest.state.id)
+      .filter((inst) => inst.definitionId === definition.id && inst.stateId === model.narrowest.state.id && !excluded(inst.nodePath))
       .sort((a, b) => comparePaths(a.nodePath, b.nodePath) || compareStrings(a.id, b.id))
       .filter((inst) => {
         if (seen.has(inst.nodePath)) return false;
         seen.add(inst.nodePath);
         return true;
       });
+    if (instances.length === 0 && options.skipAbsent) continue;
     const roots: { id: string; root: GenNode }[] = [];
     let missing: string | null = null;
     for (const inst of instances) {
@@ -376,6 +399,25 @@ export function planComponents(dna: UiDnaDocument, model: GenerationModel, asset
       variants = { ids, defaultId: variantByInstance.get(primary.root.path) ?? ids[0] ?? 'variant01', declared: declaredMatches, nodes };
     }
 
+    // Router links: <a> nodes of this component whose href resolves to a generated page for every instance.
+    const routerLinks = new Set<string>();
+    const routeOf = options.routeOf;
+    if (routeOf !== undefined) {
+      for (const rel of ownPaths) {
+        const primaryNode = primaryTree.get(rel);
+        if (primaryNode?.renderedTag !== 'a') continue;
+        const routes = roots.map((r) => {
+          const node = model.byPath.get(joinPath(r.root.path, rel));
+          return node === undefined ? null : routeOf(node.node);
+        });
+        if (routes.every((route) => route !== null)) routerLinks.add(joinPath(primary.root.path, rel));
+      }
+    }
+    const routeValue = (rel: string, node: GenNode | undefined, href: string): string => {
+      if (!routerLinks.has(joinPath(primary.root.path, rel)) || node === undefined || routeOf === undefined) return href;
+      return routeOf(node.node) ?? href;
+    };
+
     // Instance values.
     const instances: ComponentInstancePlan[] = roots.map((r) => {
       const values = new Map<string, PropValue>();
@@ -388,7 +430,7 @@ export function planComponents(dna: UiDnaDocument, model: GenerationModel, asset
             values.set(prop.name, text);
             break;
           case 'string':
-            values.set(prop.name, prop.attr === null ? text : (attrs.get(prop.attr) ?? ''));
+            values.set(prop.name, prop.attr === null ? text : prop.attr === 'href' ? routeValue(prop.relativePath, node, attrs.get('href') ?? '') : (attrs.get(prop.attr) ?? ''));
             break;
           case 'image': {
             const resolution = node ? assets.resolveImage(node.node) : null;
@@ -396,7 +438,7 @@ export function planComponents(dna: UiDnaDocument, model: GenerationModel, asset
             break;
           }
           case 'link':
-            values.set(prop.name, { href: attrs.get('href') ?? '', label: text });
+            values.set(prop.name, { href: routeValue(prop.relativePath, node, attrs.get('href') ?? ''), label: text });
             break;
           default:
             break;
@@ -446,8 +488,10 @@ export function planComponents(dna: UiDnaDocument, model: GenerationModel, asset
       props,
       variants,
       bindings,
+      routerLinks,
       notes,
     };
+    if (routerLinks.size > 0) notes.push(`${routerLinks.size} link(s) render as react-router <Link> because every instance's href resolves to a generated page`);
     components.push(plan);
     for (const instance of instances) instanceByPath.set(instance.root.path, { plan, instance });
   }

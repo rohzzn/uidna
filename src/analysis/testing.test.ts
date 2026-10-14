@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ScanRecordSchema } from '../application/records.js';
 import { CapturedStateSchema } from '../browser/schemas.js';
-import { buildFixtureACapture, buildFixtureACaptures, buildFixtureAScanRecord, findNode, findNodes } from './testing.js';
+import { buildFixtureACapture, buildFixtureACaptures, buildFixtureAScanRecord, buildMultiPageFixture, FIXTURE_A_FEATURES_URL, findNode, findNodes } from './testing.js';
 
 describe('buildFixtureACapture', () => {
   it('validates against the capture schema at both viewports and with the menu open', () => {
@@ -84,5 +84,39 @@ describe('buildFixtureAScanRecord', () => {
       ['st_02', 'base', 390],
     ]);
     expect(record.states[0]!.capturePath).toBe('states/st_01/capture.json');
+    expect(record.pages).toBeUndefined();
+    expect(record.states.every((s) => s.pageId === undefined)).toBe(true);
+  });
+});
+
+describe('buildMultiPageFixture', () => {
+  it('produces valid captures and a scan record that lists two pages with their states', () => {
+    const fixture = buildMultiPageFixture();
+    for (const [stateId, capture] of fixture.captures) {
+      const parsed = CapturedStateSchema.safeParse(capture);
+      expect(parsed.success, `${stateId}: ${JSON.stringify(parsed.success ? null : parsed.error.issues.slice(0, 3))}`).toBe(true);
+    }
+    expect(ScanRecordSchema.safeParse(fixture.scan).success).toBe(true);
+    expect(fixture.scan.pages?.map((p) => [p.pageId, p.depth, p.discoveredVia])).toEqual([
+      ['pg_01', 0, null],
+      ['pg_02', 1, `pg_01:${fixture.featuresLinkPath}`],
+    ]);
+    expect(fixture.featuresLinkPath).not.toBe('');
+    expect(fixture.scan.states.map((s) => [s.stateId, s.pageId, s.viewport.width])).toEqual([
+      ['st_01', 'pg_01', 1280],
+      ['st_02', 'pg_01', 390],
+      ['st_03', 'pg_02', 1280],
+      ['st_04', 'pg_02', 390],
+    ]);
+    expect(fixture.captures.get('st_03')!.url).toBe(FIXTURE_A_FEATURES_URL);
+    expect(findNodes(fixture.captures.get('st_01')!, '.nav-link').map((n) => n.attrs.href)).toEqual(['/features.html', '/pricing.html', '#faq', 'https://example.com/status']);
+    expect(findNodes(buildFixtureACapture(), '.nav-link').map((n) => n.attrs.href)).toEqual(['#features', '#pricing', '#faq', '#start']);
+  });
+
+  it('is deterministic', () => {
+    const a = buildMultiPageFixture();
+    const b = buildMultiPageFixture();
+    expect(JSON.stringify([...a.captures])).toBe(JSON.stringify([...b.captures]));
+    expect(JSON.stringify(a.scan)).toBe(JSON.stringify(b.scan));
   });
 });

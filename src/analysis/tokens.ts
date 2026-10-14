@@ -485,6 +485,16 @@ function breakpointTokens(captures: CaptureMap, ctx: TokenContext): Token[] {
   return tokens;
 }
 
+/**
+ * Breakpoint tokens only: the viewport widths at which the base states of one
+ * page differ in box or visibility. Callers assembling a multi-page document
+ * pass the captures of one page at a time, since viewports of different pages
+ * are not comparable.
+ */
+export function extractBreakpoints(captures: CaptureMap, ctx: TokenContext): Token[] {
+  return breakpointTokens(captures, ctx);
+}
+
 /** Extract every token kind from the captures. */
 export function extractTokens(captures: CaptureMap, ctx: TokenContext): Tokens {
   return {

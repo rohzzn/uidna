@@ -32,10 +32,24 @@ const KEPT_ATTRIBUTES: ReadonlySet<string> = new Set([
   'loading',
   'autocomplete',
   'method',
+  // form controls: constraint attributes the browser validates
+  'required',
+  'minlength',
+  'maxlength',
+  'pattern',
+  'min',
+  'max',
+  'step',
+  'readonly',
+  'multiple',
+  'novalidate',
 ]);
 
 /** Attributes written without a value when present. */
-export const BOOLEAN_ATTRIBUTES: ReadonlySet<string> = new Set(['open', 'disabled', 'hidden', 'checked']);
+export const BOOLEAN_ATTRIBUTES: ReadonlySet<string> = new Set(['open', 'disabled', 'hidden', 'checked', 'required', 'readonly', 'multiple', 'novalidate']);
+
+/** Constraint attributes that only form controls carry. */
+const CONTROL_ATTRIBUTES: ReadonlySet<string> = new Set(['required', 'minlength', 'maxlength', 'pattern', 'min', 'max', 'step', 'readonly', 'multiple']);
 
 /** Captured attributes that survive into the generated markup, in sorted order. */
 export function keptAttributes(node: UiNode, renderedTag: string): Map<string, string> {
@@ -53,6 +67,8 @@ export function keptAttributes(node: UiNode, renderedTag: string): Map<string, s
     if ((lower === 'value' || lower === 'checked') && !formish) continue;
     if (lower === 'open' && tag !== 'details' && tag !== 'dialog') continue;
     if (lower === 'type' && renderedTag === 'div') continue;
+    if (CONTROL_ATTRIBUTES.has(lower) && !formish) continue;
+    if (lower === 'novalidate' && tag !== 'form') continue;
     if (lower === 'href') {
       out.set(lower, safeUrl(value));
       continue;
@@ -60,5 +76,13 @@ export function keptAttributes(node: UiNode, renderedTag: string): Map<string, s
     if (!/^[a-z][a-z0-9-]*$/.test(lower)) continue;
     out.set(lower, value.length > 512 ? value.slice(0, 512) : value);
   }
+  // The capture reports `required` as a form-control fact even when the attribute itself was not kept.
+  if (formish && node.form?.required === true && !out.has('required')) out.set('required', '');
   return out;
+}
+
+/** True for `<input>`, `<select>` and `<textarea>` (the controls `checkValidity()` applies to). */
+export function isFormControl(tag: string): boolean {
+  const lower = tag.toLowerCase();
+  return lower === 'input' || lower === 'select' || lower === 'textarea';
 }

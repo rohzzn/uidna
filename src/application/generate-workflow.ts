@@ -35,7 +35,7 @@ export async function generateProject(
   }
   const evidence = await ctx.ledger.record({
     kind: 'generate',
-    inputs: { scanId: input.scanId, outDir, install: input.install ?? true, build: input.build ?? true },
+    inputs: { scanId: input.scanId, outDir, install: input.install ?? true, build: input.build ?? true, router: input.router, behaviorTests: input.behaviorTests },
     scanId: input.scanId,
   });
   ctx.progress.report({ message: `generating project in ${outDir}`, current: 0, total: 3 });
@@ -45,6 +45,8 @@ export async function generateProject(
     outDir,
     install: input.install ?? true,
     build: input.build ?? true,
+    ...(input.router === undefined ? {} : { router: input.router }),
+    ...(input.behaviorTests === undefined ? {} : { behaviorTests: input.behaviorTests }),
     clock: ctx.clock,
     progress: ctx.progress,
     evidenceId: evidence.id,

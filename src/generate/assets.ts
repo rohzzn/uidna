@@ -32,17 +32,34 @@ export type AssetResolution =
   | { readonly kind: 'file'; readonly assetId: string; readonly src: string }
   | { readonly kind: 'placeholder'; readonly assetId: string; readonly url: string; readonly assetKind: string; readonly reason: string };
 
+/** State shared between the registries of the pages of one document (copies and placeholders are per project). */
+interface SharedAssetState {
+  readonly copies: Map<string, AssetCopy>;
+  readonly usedNames: Map<string, string>;
+  readonly placeholders: PlaceholderRecord[];
+}
+
 /** Collects copies and placeholders while rendering. */
 export class AssetRegistry {
-  private readonly copies = new Map<string, AssetCopy>();
-  private readonly usedNames = new Map<string, string>();
-  readonly placeholders: PlaceholderRecord[] = [];
+  private readonly copies: Map<string, AssetCopy>;
+  private readonly usedNames: Map<string, string>;
+  readonly placeholders: PlaceholderRecord[];
 
   constructor(
     private readonly dna: UiDnaDocument,
     private readonly model: GenerationModel,
     private readonly scanDir: string,
-  ) {}
+    shared: SharedAssetState = { copies: new Map(), usedNames: new Map(), placeholders: [] },
+  ) {
+    this.copies = shared.copies;
+    this.usedNames = shared.usedNames;
+    this.placeholders = shared.placeholders;
+  }
+
+  /** A registry for another page's model that shares this one's copies and placeholders. */
+  forModel(model: GenerationModel): AssetRegistry {
+    return new AssetRegistry(this.dna, model, this.scanDir, { copies: this.copies, usedNames: this.usedNames, placeholders: this.placeholders });
+  }
 
   /** The asset used by `node` in the narrowest base state, if any. */
   findAsset(node: UiNode): Asset | undefined {
@@ -114,7 +131,12 @@ export class AssetRegistry {
   }
 }
 
-/** Assets of kind `other` with a JSON mime type: candidates for typed mocks. */
+/** Assets of kind `other` with a JSON mime type: candidates for the Phase 1 `src/mocks/data.ts` mocks. */
 export function jsonAssets(dna: UiDnaDocument): Asset[] {
   return dna.assets.filter((asset) => asset.kind === 'other' && /json/i.test(asset.mime ?? '')).sort((a, b) => compareStrings(a.id, b.id));
+}
+
+/** Captured JSON responses (`kind: 'data'`): each becomes a typed mock file under `src/mocks/`. */
+export function dataAssets(dna: UiDnaDocument): Asset[] {
+  return dna.assets.filter((asset) => asset.kind === 'data').sort((a, b) => compareStrings(a.id, b.id));
 }

@@ -8,7 +8,9 @@ import type { A11yProps, RoleTreeNode, UiNode } from '@rohzzn/uidna-schema';
 import { digestValue } from '../domain/digest.js';
 import type { AxIndex } from './ax.js';
 import { collapseWhitespace } from './ax.js';
+import { readInvalid } from './ax.js';
 import { elementPaths, type RawElement, type RawTree } from './dom-tree.js';
+import type { FormFactsIndex } from './forms.js';
 import { redactPageUrl, redactSrcset, SENSITIVE_PARAM_PATTERN } from './redact.js';
 import { CAPTURED_ATTRIBUTES, CAPTURED_ATTRIBUTE_PREFIXES, MAX_ATTR_LENGTH, MAX_TEXT_LENGTH, STYLE_DEFAULTS } from './style-properties.js';
 
@@ -47,6 +49,11 @@ export interface BuildOptions {
   readonly includeHiddenNodes?: boolean;
   /** Build the style table. Snapshots pass false and get a placeholder style id. */
   readonly withStyles?: boolean;
+  /**
+   * Form facts by node path (from `collectFormFacts`): they become `UiNode.form`
+   * and `A11yProps.errorMessage`. Snapshots omit them; digests never depend on them.
+   */
+  readonly formFacts?: FormFactsIndex;
 }
 
 /** Everything derived from one raw tree. */
@@ -121,6 +128,12 @@ export function buildState(tree: RawTree, ax: AxIndex | null, options: BuildOpti
     const role = axInfo?.role ?? null;
     const a11y: { -readonly [K in keyof A11yProps]: A11yProps[K] } = axInfo ? { ...axInfo.props } : {};
     if (axInfo?.description) a11y.description = axInfo.description;
+    // `aria-invalid` is authoritative when it says invalid; Chrome's AX tree supplies the rest (including native validity it chose to expose).
+    const ariaInvalid = attrs['aria-invalid'];
+    if (ariaInvalid !== undefined && readInvalid(ariaInvalid.trim().toLowerCase()) === true) a11y.invalid = true;
+    const facts = options.formFacts?.get(paths[rawIndex] ?? '');
+    const errorMessage = facts?.errorMessage ?? (a11y.invalid === true ? facts?.describedBy : null) ?? null;
+    if (errorMessage !== null) a11y.errorMessage = errorMessage;
     const pseudo = buildPseudo(element, withStyles, styleId);
     const node: Draft['node'] = {
       id,
@@ -141,6 +154,7 @@ export function buildState(tree: RawTree, ax: AxIndex | null, options: BuildOpti
       childIds: [],
     };
     if (pseudo) node.pseudo = pseudo;
+    if (facts?.form) node.form = facts.form;
     const draft: Draft = {
       node,
       rawIndex,

@@ -116,6 +116,15 @@ export class NetworkLedger {
     return count;
   }
 
+  /** Number of requests recorded after `marker` that have neither finished nor failed. */
+  inFlightSince(marker: string): number {
+    const match = /^net:(\d+)$/.exec(marker);
+    const start = match?.[1] === undefined ? 0 : Math.min(Number(match[1]), this.entries.length);
+    let count = 0;
+    for (let i = start; i < this.entries.length; i += 1) if (!this.entries[i]?.settled) count += 1;
+    return count;
+  }
+
   private onRequest(request: Request): void {
     const now = this.clock.now();
     const entry: MutableEntry = {

@@ -1,9 +1,12 @@
 /**
- * Synthetic UI DNA documents for tests. Builds a small but realistic document
- * with the structure of Fixture A (navbar with a hamburger toggle, hero,
- * three cards, an image, a details accordion, a footer) at two viewports,
- * with consistent style tables and boxes produced by a tiny layout engine,
- * two component definitions, tokens, assets and observed transitions.
+ * Synthetic UI DNA documents for tests. `fixtureDocument` builds a small but
+ * realistic document with the structure of Fixture A (navbar with a hamburger
+ * toggle, hero, three cards, an image, a details accordion, a footer) at two
+ * viewports, with consistent style tables and boxes produced by a tiny layout
+ * engine, two component definitions, tokens, assets and observed transitions.
+ * `multiPageFormDocument` builds a two-page document sharing a header and a
+ * footer, with a signup form whose submit transition shows two validation
+ * messages, fill transitions, a navigation transition and a data asset.
  * Everything is built with the schema helpers so `validateUiDna` passes.
  */
 import {
@@ -74,6 +77,8 @@ export interface Spec {
   pseudoAfter?: { content: string; style: Style };
   a11y?: A11yProps;
   interactive?: boolean;
+  /** Form-control facts (input, select, textarea, button). */
+  form?: UiNode['form'];
 }
 
 /** Edits applied to a derived state (keyed by node path). */
@@ -81,10 +86,17 @@ export interface Variation {
   readonly attrs?: Readonly<Record<string, Record<string, string | null>>>;
   readonly style?: Readonly<Record<string, Style>>;
   readonly pseudoAfter?: Readonly<Record<string, string>>;
+  /** Own text replaced on a node. */
+  readonly text?: Readonly<Record<string, string>>;
+  /** Form facts merged into a control. */
+  readonly form?: Readonly<Record<string, Partial<NonNullable<UiNode['form']>>>>;
+  /** Accessibility properties merged into a node. */
+  readonly a11y?: Readonly<Record<string, A11yProps>>;
 }
 
 const INHERITED = ['color', 'font-family', 'font-size', 'font-weight', 'line-height', 'cursor', 'text-align', 'letter-spacing', 'list-style-type', 'visibility'] as const;
 const BLOCK_TAGS = new Set(['body', 'div', 'p', 'h1', 'h2', 'h3', 'h4', 'ul', 'ol', 'section', 'article', 'header', 'footer', 'nav', 'main', 'aside', 'figure', 'figcaption', 'details', 'form']);
+const INLINE_BLOCK_TAGS = new Set(['button', 'input', 'select', 'textarea']);
 
 function per<T>(value: PerViewport<T> | undefined, viewport: number, fallback: T): T {
   if (value === undefined) return fallback;
@@ -104,7 +116,7 @@ function fmt(n: number): string {
 
 function uaDisplay(tag: string): string {
   if (tag === 'li' || tag === 'summary') return 'list-item';
-  if (tag === 'button' || tag === 'input') return 'inline-block';
+  if (INLINE_BLOCK_TAGS.has(tag)) return 'inline-block';
   if (BLOCK_TAGS.has(tag)) return 'block';
   return 'inline';
 }
@@ -147,7 +159,7 @@ function layout(spec: Spec, ctx: LayoutContext, parent: { style: Style; hidden: 
   const parentFlexColumn = parentDisplay === 'flex' && parent?.style['flex-direction'] === 'column';
   const inlineLevel = display.startsWith('inline');
   const position = style.position ?? 'static';
-  const text = spec.text;
+  const text = ctx.variation.text?.[ctx.path] ?? spec.text;
   const childSpecs = spec.children ?? [];
   const lines = per(spec.lines, viewport, 1);
 
@@ -310,7 +322,12 @@ function layout(spec: Spec, ctx: LayoutContext, parent: { style: Style; hidden: 
   }
   const pseudoContent = ctx.variation.pseudoAfter?.[ctx.path] ?? spec.pseudoAfter?.content;
   const pseudoAfter = spec.pseudoAfter && pseudoContent !== undefined ? { content: pseudoContent, style: { ...spec.pseudoAfter.style } } : null;
-  return { spec: { ...spec, attrs }, style: dropDefaults(style), box, children, pseudoAfter };
+  const formEdit = ctx.variation.form?.[ctx.path];
+  const form = spec.form === undefined ? undefined : formEdit === undefined ? spec.form : { ...spec.form, ...formEdit };
+  const a11yEdit = ctx.variation.a11y?.[ctx.path];
+  const a11y = a11yEdit === undefined ? spec.a11y : { ...(spec.a11y ?? {}), ...a11yEdit };
+  const edited: Spec = { ...spec, attrs, ...(text === undefined ? {} : { text }), ...(form === undefined ? {} : { form }), ...(a11y === undefined ? {} : { a11y }) };
+  return { spec: edited, style: dropDefaults(style), box, children, pseudoAfter };
 }
 
 function round(n: number): number {
@@ -652,10 +669,23 @@ const VIEWPORTS = [
   { width: 1280, height: 800 },
 ] as const;
 
+/** Identity of a synthetic state. */
+interface StateSpec {
+  readonly id: string;
+  readonly viewportIndex: 0 | 1;
+  readonly kind: 'base' | 'derived';
+  readonly parentStateId: string | null;
+  readonly variation: Variation;
+  readonly pageId: string;
+  readonly url: string;
+  readonly title: string;
+}
+
 /** Build a `UiState` from a laid-out tree. */
-function buildState(id: string, viewportIndex: 0 | 1, kind: 'base' | 'derived', parentStateId: string | null, variation: Variation): UiState {
+function buildStateFrom(spec: Spec, options: StateSpec): UiState {
+  const { id, viewportIndex, kind, parentStateId, variation } = options;
   const viewport = VIEWPORTS[viewportIndex];
-  const root = layout(fixtureSpec(), { viewport: viewportIndex, variation, path: '' }, null, 0, 0, viewport.width);
+  const root = layout(spec, { viewport: viewportIndex, variation, path: '' }, null, 0, 0, viewport.width);
   const nodes: UiNode[] = [];
   const styles: Record<string, string> = {};
   const styleTable: Record<string, Record<string, string>> = {};
@@ -669,9 +699,10 @@ function buildState(id: string, viewportIndex: 0 | 1, kind: 'base' | 'derived', 
     return next;
   };
   const roleTree: RoleTreeNode[] = [];
-  const visit = (node: LaidOut, parentId: string | null, path: string, depth: number): string => {
+  const visit = (node: LaidOut, parentId: string | null, path: string, depth: number, inForm: boolean): string => {
     const id = `n${(nodes.length + 1).toString().padStart(3, '0')}`;
     const index = nodes.length;
+    const nodeInForm = inForm || node.spec.tag === 'form';
     const placeholder: UiNode = {
       id,
       parentId,
@@ -687,26 +718,27 @@ function buildState(id: string, viewportIndex: 0 | 1, kind: 'base' | 'derived', 
       a11y: { ...(node.spec.a11y ?? {}) },
       visible: node.box !== null,
       interactive: node.spec.interactive ?? false,
-      inForm: false,
+      inForm: nodeInForm,
       childIds: [],
+      ...(node.spec.form === undefined ? {} : { form: { ...node.spec.form } }),
     };
     nodes.push(placeholder);
-    if (node.spec.role) roleTree.push({ nodeId: id, role: node.spec.role, name: node.spec.name ?? '', depth, states: node.spec.a11y?.expanded === undefined ? {} : { expanded: node.spec.a11y.expanded } });
-    const childIds = node.children.map((child, i) => visit(child, id, path === '' ? `${i}` : `${path}/${i}`, depth + 1));
+    if (node.spec.role && node.box !== null) roleTree.push({ nodeId: id, role: node.spec.role, name: node.spec.name ?? '', depth, states: node.spec.a11y?.expanded === undefined ? {} : { expanded: node.spec.a11y.expanded } });
+    const childIds = node.children.map((child, i) => visit(child, id, path === '' ? `${i}` : `${path}/${i}`, depth + 1, nodeInForm));
     const pseudo = node.pseudoAfter ? { after: { content: node.pseudoAfter.content, styleId: styleId(node.pseudoAfter.style) } } : undefined;
     nodes[index] = { ...placeholder, childIds, ...(pseudo ? { pseudo } : {}) };
     return id;
   };
-  visit(root, null, '', 0);
+  visit(root, null, '', 0, false);
   const bodyBox = root.box ?? { x: 0, y: 0, width: viewport.width, height: 0 };
   const height = Math.round(bodyBox.height);
   return {
     id,
-    pageId: 'pg_01',
+    pageId: options.pageId,
     kind,
     parentStateId,
-    url: FIXTURE_URL,
-    title: 'Lumen — Notes that think with you',
+    url: options.url,
+    title: options.title,
     viewport: { width: viewport.width, height: viewport.height },
     capturedAt: FIXTURE_CAPTURED_AT,
     evidenceId: 'ev_000000000001',
@@ -720,6 +752,11 @@ function buildState(id: string, viewportIndex: 0 | 1, kind: 'base' | 'derived', 
     roleTree,
     provenance: { kind: 'measured', source: 'computed-style', stateId: id, viewport: { width: viewport.width, height: viewport.height }, evidenceId: 'ev_000000000001', capturedAt: FIXTURE_CAPTURED_AT, confidence: 1 },
   };
+}
+
+/** Build a Fixture A state. */
+function buildState(id: string, viewportIndex: 0 | 1, kind: 'base' | 'derived', parentStateId: string | null, variation: Variation): UiState {
+  return buildStateFrom(fixtureSpec(), { id, viewportIndex, kind, parentStateId, variation, pageId: 'pg_01', url: FIXTURE_URL, title: 'Lumen — Notes that think with you' });
 }
 
 /** Node paths of interest in the synthetic page. */
@@ -912,6 +949,457 @@ export function fixtureDocument(): UiDnaDocument {
       { id: 'ev_000000000001', kind: 'scan', artifacts: ['states/st_01/capture.json', 'states/st_02/capture.json'], capturedAt: FIXTURE_CAPTURED_AT },
       { id: 'ev_000000000002', kind: 'tokens', artifacts: [], capturedAt: FIXTURE_CAPTURED_AT },
       { id: 'ev_000000000003', kind: 'explore', artifacts: ['states/st_03/capture.json', 'states/st_04/capture.json', 'states/st_05/capture.json'], capturedAt: FIXTURE_CAPTURED_AT },
+    ],
+    annotations: [],
+  };
+}
+
+/* ------------------------------------------------- multi-page + form */
+
+/** URL of the second page of the multi-page document. */
+export const FIXTURE_FORM_URL = 'http://127.0.0.1:4173/features.html';
+/** Scan id of the multi-page document. */
+export const FIXTURE_MULTI_SCAN_ID = 'scan_20261013_fedcba';
+
+/** Node paths of interest in the multi-page document (header, footer and main paths are the same on both pages). */
+export const MULTI_PATHS = {
+  header: '0',
+  nav: '0/0',
+  brand: '0/0/0',
+  navMenu: '0/0/1',
+  navItems: ['0/0/1/0', '0/0/1/1'],
+  homeLink: '0/0/1/0/0',
+  featuresLink: '0/0/1/1/0',
+  main: '1',
+  heroCta: '1/0/3/0',
+  form: '1/0/2',
+  nameInput: '1/0/2/0/1',
+  nameError: '1/0/2/0/2',
+  emailInput: '1/0/2/1/1',
+  emailError: '1/0/2/1/2',
+  submit: '1/0/2/2/0',
+  status: '1/0/2/3',
+  footer: '2',
+  footerLinks: '2/0/1',
+  statusPageLink: '2/0/1/2',
+} as const;
+
+const plainLink = (text: string, href: string, extra: Partial<Spec> = {}): Spec => ({
+  tag: 'a',
+  attrs: { class: 'nav-link', href },
+  text,
+  role: 'link',
+  name: text,
+  interactive: true,
+  style: { display: 'inline-block', 'padding-top': '8px', 'padding-bottom': '8px', 'font-size': '15px', 'font-weight': '500', color: COLORS.muted, cursor: 'pointer', 'line-height': '22.5px' },
+  w: Math.round(text.length * 7.5),
+  ...extra,
+});
+
+function sharedHeader(): Spec {
+  return {
+    tag: 'header',
+    attrs: { class: 'site-header' },
+    role: 'banner',
+    style: { 'border-bottom-width': '1px', 'border-bottom-style': 'solid', 'border-bottom-color': COLORS.border, 'background-color': COLORS.white },
+    children: [
+      {
+        tag: 'nav',
+        attrs: { class: 'navbar', 'aria-label': 'Primary' },
+        role: 'navigation',
+        name: 'Primary',
+        style: { 'max-width': '1120px', 'padding-top': '16px', 'padding-right': '24px', 'padding-bottom': '16px', 'padding-left': '24px', display: 'flex', 'align-items': 'center', 'justify-content': 'space-between', gap: '24px' },
+        desktop: { 'margin-left': '80px', 'margin-right': '80px' },
+        children: [
+          { tag: 'a', attrs: { class: 'brand', href: '/' }, text: 'Lumen', role: 'link', name: 'Lumen', interactive: true, w: 54, style: { display: 'inline-block', 'font-weight': '700', 'font-size': '20px', cursor: 'pointer', 'line-height': '30px' } },
+          {
+            tag: 'ul',
+            attrs: { class: 'nav-menu' },
+            role: 'list',
+            style: { display: 'flex', 'align-items': 'center', gap: '24px', 'list-style-type': 'none' },
+            children: [
+              { tag: 'li', role: 'listitem', children: [plainLink('Home', '/')] },
+              { tag: 'li', role: 'listitem', children: [plainLink('Features', '/features.html')] },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function sharedFooter(): Spec {
+  const footerLink = (text: string, href: string, extra: Record<string, string> = {}): Spec => ({
+    tag: 'a',
+    attrs: { class: 'footer-link', href, ...extra },
+    text,
+    role: 'link',
+    name: text,
+    interactive: true,
+    style: { display: 'inline-block', 'font-size': '14px', color: COLORS.muted, 'line-height': '21px', cursor: 'pointer' },
+    w: text.length * 7,
+  });
+  return {
+    tag: 'footer',
+    attrs: { class: 'site-footer' },
+    role: 'contentinfo',
+    style: { 'border-top-width': '1px', 'border-top-style': 'solid', 'border-top-color': COLORS.border, 'background-color': COLORS.white },
+    children: [
+      {
+        tag: 'div',
+        attrs: { class: 'footer-inner' },
+        style: { 'max-width': '1120px', 'padding-top': '32px', 'padding-right': '24px', 'padding-bottom': '32px', 'padding-left': '24px', display: 'flex', 'flex-direction': 'column', 'align-items': 'flex-start', gap: '24px' },
+        desktop: { 'flex-direction': 'row', 'align-items': 'center', 'justify-content': 'space-between', 'margin-left': '80px', 'margin-right': '80px' },
+        children: [
+          { tag: 'p', attrs: { class: 'footer-brand' }, text: 'Lumen', style: { 'font-weight': '700', 'font-size': '18px', 'line-height': '27px' }, w: 54 },
+          {
+            tag: 'div',
+            attrs: { class: 'footer-links' },
+            style: { display: 'flex', gap: '24px' },
+            children: [footerLink('Home', '/'), footerLink('Features', '/features.html'), footerLink('Status page', 'https://example.com/', { rel: 'noopener' })],
+          },
+          { tag: 'p', attrs: { class: 'footer-copy' }, text: 'Fixture for UI DNA. No real product.', style: { 'font-size': '13px', color: COLORS.muted, 'line-height': '19.5px' }, w: 240 },
+        ],
+      },
+    ],
+  };
+}
+
+const BODY_STYLE: Style = { 'font-family': FONT, color: COLORS.text, 'background-color': COLORS.white, 'line-height': '24px', 'font-size': '16px', 'font-weight': '400' };
+
+/** The home page of the multi-page document. */
+export function homePageSpec(): Spec {
+  return {
+    tag: 'body',
+    style: BODY_STYLE,
+    children: [
+      sharedHeader(),
+      {
+        tag: 'main',
+        role: 'main',
+        children: [
+          {
+            tag: 'section',
+            attrs: { class: 'hero', 'aria-labelledby': 'hero-title' },
+            role: 'region',
+            name: 'Notes that think with you',
+            style: { 'max-width': '1120px', 'padding-top': '48px', 'padding-right': '16px', 'padding-bottom': '48px', 'padding-left': '16px' },
+            desktop: { 'padding-top': '64px', 'padding-right': '24px', 'padding-bottom': '64px', 'padding-left': '24px', 'margin-left': '80px', 'margin-right': '80px' },
+            children: [
+              { tag: 'p', attrs: { class: 'eyebrow' }, text: 'Now in public beta', style: { display: 'inline-block', color: COLORS.primary, 'font-size': '13px', 'font-weight': '600', 'text-transform': 'uppercase', 'line-height': '19.5px' }, w: 140 },
+              { tag: 'h1', attrs: { class: 'hero-title', id: 'hero-title' }, text: 'Notes that think with you', role: 'heading', name: 'Notes that think with you', a11y: { level: 1 }, style: { 'margin-top': '16px', 'font-size': '32px', 'line-height': '35.2px', 'font-weight': '700' }, desktop: { 'font-size': '48px', 'line-height': '52.8px' }, lines: [2, 1] },
+              { tag: 'p', attrs: { class: 'hero-lead' }, text: 'Lumen keeps your ideas connected across every page of your work.', style: { 'margin-top': '16px', color: COLORS.muted, 'max-width': '480px' }, lines: [3, 2] },
+              {
+                tag: 'div',
+                attrs: { class: 'hero-actions' },
+                style: { 'margin-top': '24px', display: 'flex', gap: '16px' },
+                children: [
+                  { tag: 'a', attrs: { class: 'button button-primary', href: '/features.html' }, text: 'See features', role: 'link', name: 'See features', interactive: true, w: 100, style: { display: 'inline-flex', 'align-items': 'center', 'justify-content': 'center', 'padding-top': '12px', 'padding-right': '20px', 'padding-bottom': '12px', 'padding-left': '20px', 'border-top-left-radius': '12px', 'border-top-right-radius': '12px', 'border-bottom-right-radius': '12px', 'border-bottom-left-radius': '12px', 'font-size': '16px', 'font-weight': '600', 'background-color': COLORS.primary, color: COLORS.white, cursor: 'pointer' } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      sharedFooter(),
+    ],
+  };
+}
+
+const INPUT_STYLE: Style = { display: 'block', width: '100%', 'padding-top': '10px', 'padding-right': '12px', 'padding-bottom': '10px', 'padding-left': '12px', ...border(), 'border-top-left-radius': '8px', 'border-top-right-radius': '8px', 'border-bottom-right-radius': '8px', 'border-bottom-left-radius': '8px', 'font-size': '16px', 'line-height': '24px', 'font-family': FONT };
+const ERROR_STYLE: Style = { display: 'none', 'margin-top': '6px', color: 'rgb(185, 28, 28)', 'font-size': '13px', 'line-height': '19.5px' };
+
+function field(id: string, label: string, type: string, extra: Record<string, string> = {}): Spec {
+  return {
+    tag: 'div',
+    attrs: { class: 'field' },
+    style: { 'margin-bottom': '16px' },
+    children: [
+      { tag: 'label', attrs: { class: 'label', for: id }, text: label, style: { display: 'block', 'font-weight': '600', 'margin-bottom': '6px', 'font-size': '14px', 'line-height': '21px' } },
+      {
+        tag: 'input',
+        attrs: { class: 'input', id, name: id, type, ...extra },
+        role: 'textbox',
+        name: label,
+        interactive: true,
+        h: 24,
+        style: INPUT_STYLE,
+        form: { valid: false, validationMessage: 'Please fill out this field.', required: true, type, hasValue: false },
+      },
+      { tag: 'p', attrs: { class: 'error', id: `${id}-error`, role: 'alert', hidden: '' }, role: 'alert', text: '', style: ERROR_STYLE },
+    ],
+  };
+}
+
+/** The signup page of the multi-page document. */
+export function formPageSpec(): Spec {
+  return {
+    tag: 'body',
+    style: BODY_STYLE,
+    children: [
+      sharedHeader(),
+      {
+        tag: 'main',
+        role: 'main',
+        children: [
+          {
+            tag: 'section',
+            attrs: { class: 'panel', 'aria-labelledby': 'signup-title' },
+            role: 'region',
+            name: 'Create your account',
+            style: { 'max-width': '480px', 'padding-top': '32px', 'padding-right': '16px', 'padding-bottom': '32px', 'padding-left': '16px' },
+            desktop: { 'margin-left': '80px', 'margin-right': '80px' },
+            children: [
+              { tag: 'h1', attrs: { class: 'panel-title', id: 'signup-title' }, text: 'Create your account', role: 'heading', name: 'Create your account', a11y: { level: 1 }, style: { 'font-size': '28px', 'line-height': '33.6px', 'font-weight': '700' } },
+              { tag: 'p', attrs: { class: 'panel-lead' }, text: 'Free for one device. No credit card.', style: { 'margin-top': '8px', 'margin-bottom': '24px', color: COLORS.muted } },
+              {
+                tag: 'form',
+                attrs: { class: 'form', id: 'signup', novalidate: '' },
+                role: 'form',
+                children: [
+                  field('name', 'Full name', 'text', { autocomplete: 'name' }),
+                  field('email', 'Email', 'email', { autocomplete: 'email' }),
+                  {
+                    tag: 'div',
+                    attrs: { class: 'actions' },
+                    style: { display: 'flex', gap: '12px', 'margin-top': '8px' },
+                    children: [
+                      { tag: 'button', attrs: { class: 'button button-primary', type: 'submit' }, text: 'Create account', role: 'button', name: 'Create account', interactive: true, w: 120, style: { display: 'inline-flex', 'align-items': 'center', 'padding-top': '12px', 'padding-right': '20px', 'padding-bottom': '12px', 'padding-left': '20px', 'border-top-left-radius': '12px', 'border-top-right-radius': '12px', 'border-bottom-right-radius': '12px', 'border-bottom-left-radius': '12px', 'font-size': '16px', 'font-weight': '600', 'background-color': COLORS.primary, color: COLORS.white, cursor: 'pointer', 'font-family': FONT, 'line-height': '24px' } },
+                    ],
+                  },
+                  { tag: 'p', attrs: { class: 'status', id: 'status', role: 'status', hidden: '' }, role: 'status', text: '', style: { display: 'none', 'margin-top': '16px', color: COLORS.green } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      sharedFooter(),
+    ],
+  };
+}
+
+/** Build the two-page document: home (`/`) and signup (`/features.html`) sharing header and footer. */
+export function multiPageFormDocument(): UiDnaDocument {
+  const home = (id: string, viewportIndex: 0 | 1): UiState => buildStateFrom(homePageSpec(), { id, viewportIndex, kind: 'base', parentStateId: null, variation: {}, pageId: 'pg_01', url: FIXTURE_URL, title: 'Lumen — Home' });
+  const form = (id: string, viewportIndex: 0 | 1, kind: 'base' | 'derived', parentStateId: string | null, variation: Variation): UiState => buildStateFrom(formPageSpec(), { id, viewportIndex, kind, parentStateId, variation, pageId: 'pg_02', url: FIXTURE_FORM_URL, title: 'Lumen — Create your account' });
+  const st01 = home('st_01', 0);
+  const st02 = home('st_02', 1);
+  const st03 = form('st_03', 0, 'base', null, {});
+  const st04 = form('st_04', 1, 'base', null, {});
+  const errors: Variation = {
+    attrs: {
+      [MULTI_PATHS.nameInput]: { 'aria-invalid': 'true', 'aria-errormessage': 'name-error' },
+      [MULTI_PATHS.emailInput]: { 'aria-invalid': 'true', 'aria-errormessage': 'email-error' },
+      [MULTI_PATHS.nameError]: { hidden: null },
+      [MULTI_PATHS.emailError]: { hidden: null },
+    },
+    style: { [MULTI_PATHS.nameError]: { display: 'block' }, [MULTI_PATHS.emailError]: { display: 'block' } },
+    text: { [MULTI_PATHS.nameError]: 'Enter your full name.', [MULTI_PATHS.emailError]: 'Enter a valid email address.' },
+    a11y: { [MULTI_PATHS.nameInput]: { invalid: true, errorMessage: 'Enter your full name.', focused: true }, [MULTI_PATHS.emailInput]: { invalid: true, errorMessage: 'Enter a valid email address.' } },
+  };
+  const st05 = form('st_05', 0, 'derived', 'st_03', errors);
+  const filledName: Variation = { form: { [MULTI_PATHS.nameInput]: { valid: true, validationMessage: null, hasValue: true } } };
+  const st06 = form('st_06', 0, 'derived', 'st_03', filledName);
+  const filledBoth: Variation = { form: { ...filledName.form, [MULTI_PATHS.emailInput]: { valid: true, validationMessage: null, hasValue: true } } };
+  const st07 = form('st_07', 0, 'derived', 'st_06', filledBoth);
+  const submitted: Variation = {
+    ...filledBoth,
+    attrs: { [MULTI_PATHS.status]: { hidden: null } },
+    style: { [MULTI_PATHS.status]: { display: 'block' } },
+    text: { [MULTI_PATHS.status]: 'Could not reach the server.' },
+  };
+  const st08 = form('st_08', 0, 'derived', 'st_07', submitted);
+  const st09 = buildStateFrom(homePageSpec(), { id: 'st_09', viewportIndex: 0, kind: 'derived', parentStateId: 'st_01', variation: { style: { [MULTI_PATHS.brand]: { color: COLORS.primary } } }, pageId: 'pg_01', url: FIXTURE_URL, title: 'Lumen — Home' });
+  const states = [st01, st02, st03, st04, st05, st06, st07, st08, st09];
+
+  const observedCtx = { capturedAt: FIXTURE_CAPTURED_AT, evidenceId: 'ev_000000000003' };
+  const provenanceOf = (from: UiState): Transition['provenance'] => observed(true, 'interaction', { ...observedCtx, stateId: from.id, viewport: from.viewport }).provenance as Transition['provenance'];
+  const target = (state: UiState, path: string): NonNullable<Transition['action']['target']> => {
+    const node = nodeAt(state, path);
+    return { nodeId: node.id, nodePath: path, role: node.role, name: node.name, tag: node.tag, nth: 0 };
+  };
+  const changed = (state: UiState, paths: readonly string[]): string[] => paths.map((p) => nodeAt(state, p).id);
+  const transitions: Transition[] = [
+    {
+      id: 'tr_01',
+      from: st01.id,
+      action: { type: 'click', target: target(st01, MULTI_PATHS.featuresLink) },
+      to: st03.id,
+      sideEffects: true,
+      network: { requests: 1, nonGet: 0 },
+      revert: { method: 'reload', succeeded: true },
+      change: { domChanged: true, roleTreeChanged: true, screenshotChanged: true, changedNodeIds: [] },
+      navigation: { toPageId: 'pg_02', url: FIXTURE_FORM_URL },
+      provenance: provenanceOf(st01),
+    },
+    {
+      id: 'tr_02',
+      from: st03.id,
+      action: { type: 'submit', target: target(st03, MULTI_PATHS.submit) },
+      to: st05.id,
+      sideEffects: false,
+      network: { requests: 0, nonGet: 0 },
+      revert: { method: 'reload', succeeded: true },
+      change: { domChanged: true, roleTreeChanged: true, screenshotChanged: true, changedNodeIds: changed(st05, [MULTI_PATHS.nameInput, MULTI_PATHS.nameError, MULTI_PATHS.emailInput, MULTI_PATHS.emailError]) },
+      navigation: null,
+      provenance: provenanceOf(st03),
+    },
+    {
+      id: 'tr_03',
+      from: st03.id,
+      action: { type: 'fill', target: target(st03, MULTI_PATHS.nameInput), value: 'Ada Lovelace' },
+      to: st06.id,
+      sideEffects: false,
+      network: { requests: 0, nonGet: 0 },
+      revert: { method: 'none', succeeded: false },
+      change: { domChanged: false, roleTreeChanged: false, screenshotChanged: true, changedNodeIds: changed(st06, [MULTI_PATHS.nameInput]) },
+      navigation: null,
+      provenance: provenanceOf(st03),
+    },
+    {
+      id: 'tr_04',
+      from: st06.id,
+      action: { type: 'fill', target: target(st06, MULTI_PATHS.emailInput), value: 'ada@example.com' },
+      to: st07.id,
+      sideEffects: false,
+      network: { requests: 0, nonGet: 0 },
+      revert: { method: 'none', succeeded: false },
+      change: { domChanged: false, roleTreeChanged: false, screenshotChanged: true, changedNodeIds: changed(st07, [MULTI_PATHS.emailInput]) },
+      navigation: null,
+      provenance: provenanceOf(st06),
+    },
+    {
+      id: 'tr_05',
+      from: st07.id,
+      action: { type: 'submit', target: target(st07, MULTI_PATHS.submit) },
+      to: st08.id,
+      sideEffects: true,
+      network: { requests: 1, nonGet: 1 },
+      revert: { method: 'reload', succeeded: true },
+      change: { domChanged: true, roleTreeChanged: true, screenshotChanged: true, changedNodeIds: changed(st08, [MULTI_PATHS.status]) },
+      navigation: null,
+      provenance: provenanceOf(st07),
+    },
+    {
+      id: 'tr_06',
+      from: st01.id,
+      action: { type: 'key', target: target(st01, MULTI_PATHS.brand), key: 'Tab' },
+      to: st09.id,
+      sideEffects: false,
+      network: { requests: 0, nonGet: 0 },
+      revert: { method: 'none', succeeded: true },
+      change: { domChanged: false, roleTreeChanged: false, screenshotChanged: true, changedNodeIds: changed(st09, [MULTI_PATHS.brand]) },
+      navigation: null,
+      provenance: provenanceOf(st01),
+    },
+  ];
+
+  const navDefinition: ComponentDefinition = {
+    id: 'cmp_01',
+    fingerprint: 'fp_navitem_multi',
+    generatedName: 'Component01',
+    structure: { tag: 'li', role: 'listitem', signature: 'li>a', depth: 1, childCount: 1 },
+    props: [{ name: 'link', kind: 'link', relativePath: '0', values: ['/', '/features.html'] }],
+    variants: [],
+    instanceCount: 2,
+    matchesByState: { st_01: 2, st_02: 2, st_03: 2, st_04: 2 },
+    pageIds: ['pg_01', 'pg_02'],
+    confidence: 0.9,
+    provenance: measured(true, 'computed-style', { capturedAt: FIXTURE_CAPTURED_AT }).provenance,
+  };
+  const instances: ComponentInstance[] = [];
+  for (const state of [st01, st02, st03, st04]) {
+    for (const path of MULTI_PATHS.navItems) {
+      const node = nodeAt(state, path);
+      instances.push({
+        id: `inst_${(instances.length + 1).toString().padStart(3, '0')}`,
+        definitionId: 'cmp_01',
+        stateId: state.id,
+        nodeId: node.id,
+        nodePath: path,
+        box: node.box === null ? { value: null, provenance: { kind: 'unknown', reason: 'not rendered' } } : measured(node.box, 'bounding-box', { capturedAt: FIXTURE_CAPTURED_AT, stateId: state.id }),
+        variantId: null,
+        props: { link: nodeAt(state, `${path}/0`).attrs.href ?? '' },
+      });
+    }
+  }
+
+  const widestHome = st02;
+  const region = (role: string, path: string): { role: string; name: string | null; nodePath: string; nodeId: string } => {
+    const node = nodeAt(widestHome, path);
+    return { role, name: node.name, nodePath: path, nodeId: node.id };
+  };
+  const navProvenance = measured(null, 'a11y-tree', { capturedAt: FIXTURE_CAPTURED_AT, stateId: st02.id }, 1).provenance;
+  const edge = (id: string, fromState: UiState, fromPageId: string, path: string, to: { url: string; pageId: string | null; sameOrigin: boolean; fragment: boolean }, followed: boolean) => {
+    const node = nodeAt(fromState, path);
+    return { id, fromPageId, to, via: { nodeId: node.id, nodePath: path, role: node.role, name: node.name }, followed, provenance: navProvenance };
+  };
+  const data: Asset = {
+    id: 'ast_01',
+    kind: 'data',
+    url: `${FIXTURE_URL}api/items.json`,
+    origin: 'same-origin',
+    mime: 'application/json',
+    bytes: 240,
+    localPath: 'assets/items.json',
+    request: { method: 'GET', status: 200, mime: 'application/json' },
+    authorization: 'unknown',
+    usage: [],
+    provenance: measured(true, 'network', { capturedAt: FIXTURE_CAPTURED_AT }).provenance,
+  };
+  const stateIds = ['st_01', 'st_02', 'st_03', 'st_04'];
+
+  return {
+    dnaVersion: UI_DNA_VERSION,
+    target: {
+      kind: 'url',
+      url: FIXTURE_URL,
+      scanId: FIXTURE_MULTI_SCAN_ID,
+      scannedAt: FIXTURE_CAPTURED_AT,
+      viewports: VIEWPORTS.map((v) => ({ width: v.width, height: v.height })),
+      budget: { limits: { timeMs: 180000, pages: 3, actions: 60, resources: 400 }, used: { timeMs: 9100, pages: 2, actions: 5, resources: 9 } },
+      tool: { name: 'uidna', version: '0.2.0' },
+    },
+    app: {
+      pages: [
+        { id: 'pg_01', url: FIXTURE_URL, title: measured('Lumen — Home', 'a11y-tree', { capturedAt: FIXTURE_CAPTURED_AT, stateId: 'st_01' }), stateIds: ['st_01', 'st_02', 'st_09'], depth: 0, discoveredVia: null },
+        { id: 'pg_02', url: FIXTURE_FORM_URL, title: measured('Lumen — Create your account', 'a11y-tree', { capturedAt: FIXTURE_CAPTURED_AT, stateId: 'st_03' }), stateIds: ['st_03', 'st_04', 'st_05', 'st_06', 'st_07', 'st_08'], depth: 1, discoveredVia: 'nav_01' },
+      ],
+      routes: [
+        { id: 'rt_01', pattern: '/', pageId: 'pg_01', provenance: navProvenance },
+        { id: 'rt_02', pattern: '/features.html', pageId: 'pg_02', provenance: navProvenance },
+      ],
+      layouts: [{ id: 'lay_01', pageIds: ['pg_01', 'pg_02'], regions: [region('banner', MULTI_PATHS.header), region('navigation', MULTI_PATHS.nav), region('main', MULTI_PATHS.main), region('contentinfo', MULTI_PATHS.footer)], provenance: navProvenance }],
+      navigation: [
+        edge('nav_01', st02, 'pg_01', MULTI_PATHS.featuresLink, { url: FIXTURE_FORM_URL, pageId: 'pg_02', sameOrigin: true, fragment: false }, true),
+        edge('nav_02', st02, 'pg_01', MULTI_PATHS.homeLink, { url: FIXTURE_URL, pageId: 'pg_01', sameOrigin: true, fragment: false }, false),
+        edge('nav_03', st02, 'pg_01', MULTI_PATHS.statusPageLink, { url: 'https://example.com/', pageId: null, sameOrigin: false, fragment: false }, false),
+        edge('nav_04', st04, 'pg_02', MULTI_PATHS.homeLink, { url: FIXTURE_URL, pageId: 'pg_01', sameOrigin: true, fragment: false }, false),
+      ],
+    },
+    states: { items: states, transitions },
+    components: { definitions: [navDefinition], instances },
+    visual: {
+      tokens: {
+        colors: [tokenOf('tok_color_01', 'color', 'color-01', '#2f5bea', 6, ['background-color', 'color'], stateIds), tokenOf('tok_color_02', 'color', 'color-02', '#1b1f2a', 10, ['color'], stateIds)],
+        typography: [],
+        fontFamilies: [tokenOf('tok_font-family_01', 'font-family', 'font-01', FONT, 30, ['font-family'], stateIds)],
+        fontSizes: [tokenOf('tok_font-size_01', 'font-size', 'size-01', '16px', 9, ['font-size'], stateIds)],
+        spacing: [],
+        radii: [tokenOf('tok_radius_01', 'radius', 'radius-01', '12px', 4, ['border-top-left-radius'], stateIds)],
+        shadows: [],
+        breakpoints: [],
+      },
+      layout: [],
+    },
+    behavior: [],
+    assets: [data],
+    limitations: [],
+    evidence: [
+      { id: 'ev_000000000001', kind: 'scan', artifacts: ['states/st_01/capture.json', 'states/st_02/capture.json', 'states/st_03/capture.json', 'states/st_04/capture.json'], capturedAt: FIXTURE_CAPTURED_AT },
+      { id: 'ev_000000000002', kind: 'tokens', artifacts: [], capturedAt: FIXTURE_CAPTURED_AT },
+      { id: 'ev_000000000003', kind: 'explore', artifacts: ['states/st_05/capture.json', 'states/st_06/capture.json', 'states/st_07/capture.json', 'states/st_08/capture.json', 'states/st_09/capture.json'], capturedAt: FIXTURE_CAPTURED_AT },
     ],
     annotations: [],
   };

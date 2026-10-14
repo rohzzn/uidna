@@ -93,7 +93,8 @@ export async function serveStatic(dir: string, options: StaticServerOptions = {}
         } catch {
           exists = false;
         }
-        if (!exists && options.spaFallback && extname(pathname) === '') {
+        // Single-page apps serve every route (including crawled `*.html` paths) from index.html.
+        if (!exists && options.spaFallback && (extname(pathname) === '' || extname(pathname).toLowerCase() === '.html')) {
           target = join(root, 'index.html');
           exists = true;
         }

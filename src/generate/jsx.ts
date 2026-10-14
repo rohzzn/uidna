@@ -180,6 +180,10 @@ export function jsxAttrName(attr: string): string {
       return 'readOnly';
     case 'maxlength':
       return 'maxLength';
+    case 'minlength':
+      return 'minLength';
+    case 'novalidate':
+      return 'noValidate';
     case 'value':
       return 'defaultValue';
     case 'checked':

@@ -2,7 +2,7 @@
  * Shared helpers for the browser-layer tests: Fixture A served by the real
  * static server, temporary directories and small generated test sites.
  */
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -85,3 +85,87 @@ export const DESKTOP = { width: 1280, height: 800 } as const;
 
 /** Phone viewport used across the tests (the hamburger breakpoint is 768px). */
 export const PHONE = { width: 390, height: 844 } as const;
+
+/** Absolute path of Fixture C (signup form with client-side validation and a JSON-fed list). */
+export const FIXTURE_C_DIR = fileURLToPath(new URL('../../fixtures/c-form/', import.meta.url));
+
+/** Absolute path of Fixture D (three linked pages with a shared header and footer). */
+export const FIXTURE_D_DIR = fileURLToPath(new URL('../../fixtures/d-multipage/', import.meta.url));
+
+/** Serve Fixture C with the fixture API (`POST /api/*` answered with JSON). */
+export async function serveFixtureC(): Promise<StaticServer> {
+  return unwrap(await serveStatic(FIXTURE_C_DIR, { fixtureApi: true }), 'serve Fixture C');
+}
+
+/** Serve Fixture D. */
+export function serveFixtureD(): Promise<StaticServer> {
+  return serveDir(FIXTURE_D_DIR);
+}
+
+/** A static directory server that counts the requests it receives by method, to prove that a request never left the browser. */
+export interface CountingDirServer {
+  readonly url: string;
+  /** Number of requests received with `method` (upper case), e.g. `hits('POST')`. */
+  hits(method: string): number;
+  close(): Promise<void>;
+}
+
+const COUNTING_TYPES: Readonly<Record<string, string>> = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+/** Serve the files of `dir` on 127.0.0.1, answer `POST /api/*` with JSON like the fixture API, and count requests per method. */
+export async function serveCountingDir(dir: string): Promise<CountingDirServer> {
+  const counts = new Map<string, number>();
+  const server = createServer((req, res) => {
+    const method = (req.method ?? 'GET').toUpperCase();
+    counts.set(method, (counts.get(method) ?? 0) + 1);
+    void (async () => {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      if (method === 'POST' && url.pathname.startsWith('/api/')) {
+        const body = JSON.stringify({ ok: true });
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body) });
+        res.end(body);
+        return;
+      }
+      let pathname: string;
+      try {
+        pathname = decodeURIComponent(url.pathname);
+      } catch {
+        res.writeHead(400, { 'content-type': 'text/plain' });
+        res.end('bad request');
+        return;
+      }
+      if (pathname.endsWith('/')) pathname += 'index.html';
+      try {
+        const body = await readFile(join(dir, ...pathname.split('/').filter((part) => part !== '' && part !== '..')));
+        const dot = pathname.lastIndexOf('.');
+        res.writeHead(200, { 'content-type': COUNTING_TYPES[dot < 0 ? '' : pathname.slice(dot).toLowerCase()] ?? 'application/octet-stream', 'content-length': body.length });
+        res.end(body);
+      } catch {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        res.end('not found');
+      }
+    })();
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve());
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  return {
+    url: `http://127.0.0.1:${port}/`,
+    hits: (method) => counts.get(method.toUpperCase()) ?? 0,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}

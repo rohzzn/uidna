@@ -255,6 +255,17 @@ export const CAPTURED_ATTRIBUTES = [
   'action',
   'form',
   'formaction',
+  'required',
+  'minlength',
+  'maxlength',
+  'pattern',
+  'min',
+  'max',
+  'step',
+  'readonly',
+  'multiple',
+  'novalidate',
+  'inputmode',
 ] as const;
 
 /** Attribute name prefixes kept on captured nodes. */

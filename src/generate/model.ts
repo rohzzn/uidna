@@ -2,7 +2,7 @@
  * The generation model: which states are rendered, how viewports map to
  * Tailwind breakpoints, and the node tree matched across viewports by path.
  */
-import type { UiDnaDocument, UiNode, UiState } from '@rohzzn/uidna-schema';
+import type { Page, UiDnaDocument, UiNode, UiState } from '@rohzzn/uidna-schema';
 import { uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { compareStrings } from './jsx.js';
@@ -184,6 +184,8 @@ export interface GenNode {
 export interface GenerationModel {
   readonly pageId: string;
   readonly pageTitle: string;
+  /** URL of the page as recorded in the document. */
+  readonly pageUrl: string;
   readonly slots: readonly ViewportSlot[];
   readonly narrowest: ViewportSlot;
   readonly body: GenNode;
@@ -227,13 +229,26 @@ export function renderKindOf(node: UiNode): { kind: RenderKind; renderedTag: str
 }
 
 /**
- * Build the generation model from a document: the single page's base states
- * sorted by viewport width, breakpoint names, and the node tree of the
- * narrowest state matched to the wider states by path.
+ * Breakpoint name per base-state width across the given pages: the narrowest
+ * width is the mobile-first base (null) and wider widths get Tailwind names,
+ * so every page of a multi-page document uses the same `md:`/`lg:` prefixes.
  */
-export function buildModel(dna: UiDnaDocument): Result<GenerationModel> {
-  const page = dna.app.pages[0];
-  if (page === undefined) return err(uidnaError('generate', 'the UI DNA document has no page'));
+export function siteBreakpoints(dna: UiDnaDocument, pageIds: readonly string[]): Map<number, string | null> {
+  const ids = new Set(pageIds);
+  const widths = [...new Set(dna.states.items.filter((s) => s.kind === 'base' && ids.has(s.pageId)).map((s) => s.viewport.width))].sort((a, b) => a - b);
+  const names = breakpointNames(widths.length - 1);
+  const out = new Map<number, string | null>();
+  widths.forEach((width, index) => out.set(width, index === 0 ? null : (names[index - 1] ?? `bp${index}`)));
+  return out;
+}
+
+/**
+ * Build the generation model of one page: its base states sorted by viewport
+ * width, breakpoint names (from `breakpoints` when given, so pages of one
+ * document agree; the page's narrowest width is always the base), and the
+ * node tree of the narrowest state matched to the wider states by path.
+ */
+export function buildPageModel(dna: UiDnaDocument, page: Page, breakpoints?: ReadonlyMap<number, string | null>): Result<GenerationModel> {
   const base = dna.states.items.filter((s) => s.kind === 'base' && s.pageId === page.id).sort((a, b) => a.viewport.width - b.viewport.width || compareStrings(a.id, b.id));
   if (base.length === 0) return err(uidnaError('generate', `page ${page.id} has no base state`));
 
@@ -245,7 +260,10 @@ export function buildModel(dna: UiDnaDocument): Result<GenerationModel> {
   const names = breakpointNames(unique.length - 1);
   const slots: ViewportSlot[] = unique.map((state, index) => {
     const { byPath, byId } = indexState(state);
-    return { index, state, width: state.viewport.width, breakpoint: index === 0 ? null : (names[index - 1] ?? `bp${index}`), byPath, byId };
+    const own = index === 0 ? null : (names[index - 1] ?? `bp${index}`);
+    const shared = breakpoints?.get(state.viewport.width);
+    const breakpoint = index === 0 ? null : shared === undefined || shared === null ? own : shared;
+    return { index, state, width: state.viewport.width, breakpoint, byPath, byId };
   });
   const narrowest = slots[0];
   if (narrowest === undefined) return err(uidnaError('generate', 'no viewport slot'));
@@ -276,7 +294,17 @@ export function buildModel(dna: UiDnaDocument): Result<GenerationModel> {
 
   const statesById = new Map(dna.states.items.map((s) => [s.id, s] as const));
   const title = page.title.value ?? narrowest.state.title;
-  return ok({ pageId: page.id, pageTitle: title, slots, narrowest, body, byPath, statesById });
+  return ok({ pageId: page.id, pageTitle: title, pageUrl: page.url, slots, narrowest, body, byPath, statesById });
+}
+
+/**
+ * Build the generation model of the document's first page (the single-page
+ * baseline): see `buildPageModel`.
+ */
+export function buildModel(dna: UiDnaDocument): Result<GenerationModel> {
+  const page = dna.app.pages[0];
+  if (page === undefined) return err(uidnaError('generate', 'the UI DNA document has no page'));
+  return buildPageModel(dna, page);
 }
 
 /** True when `ancestor` is a strict ancestor path of `path`. */
@@ -306,4 +334,37 @@ export function walk(node: GenNode, visit: (node: GenNode) => void): void {
   if (node.kind === 'skipped') return;
   visit(node);
   for (const child of node.children) walk(child, visit);
+}
+
+/** True for a top-level node that belongs in the header (banner/navigation landmark). */
+export function isHeaderish(node: GenNode): boolean {
+  const role = (node.node.attrs.role ?? node.node.role ?? '').toLowerCase();
+  return node.renderedTag === 'header' || node.renderedTag === 'nav' || role === 'banner' || role === 'navigation';
+}
+
+/** True for a top-level node that belongs in the footer (contentinfo landmark). */
+export function isFooterish(node: GenNode): boolean {
+  const role = (node.node.attrs.role ?? node.node.role ?? '').toLowerCase();
+  return node.renderedTag === 'footer' || role === 'contentinfo';
+}
+
+/**
+ * Split the body's children into leading header roots, main roots and trailing
+ * footer roots. Only direct children of `<body>` count: a header nested in a
+ * wrapper is part of the main content and cannot be hoisted into a layout.
+ */
+export function splitLandmarks(model: GenerationModel): { header: GenNode[]; main: GenNode[]; footer: GenNode[] } {
+  const children = model.body.children.filter((child) => child.kind !== 'skipped');
+  let headerEnd = 0;
+  for (const child of children) {
+    if (!isHeaderish(child)) break;
+    headerEnd += 1;
+  }
+  let footerStart = children.length;
+  while (footerStart > headerEnd) {
+    const candidate = children[footerStart - 1];
+    if (candidate === undefined || !isFooterish(candidate)) break;
+    footerStart -= 1;
+  }
+  return { header: children.slice(0, headerEnd), main: children.slice(headerEnd, footerStart), footer: children.slice(footerStart) };
 }
