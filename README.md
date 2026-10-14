@@ -1,81 +1,63 @@
-# UI DNA
+<h1 align="center">UI DNA</h1>
 
-Reverse-engineer any user interface into a **UI DNA document**, rebuild it as code you
-own, and prove the result with a DiffReport. UI DNA is an MCP server and CLI for coding
-agents: the agent is the brain, UI DNA is the instrument. It makes no model calls, needs
-no API keys, and runs entirely on your machine.
+<p align="center">
+  <strong>Reverse-engineer any user interface. Rebuild it as code you own. Prove it.</strong>
+</p>
 
-It is [REA](https://github.com/morluto/rea) for user interfaces. REA's promise is "see a
-feature you like, understand how it works, down to the binary, show the evidence, build
-it." UI DNA's promise: see an interface you like, understand how it is structured, how it
-behaves and how to reproduce it, down to the token, the component and the state
+<p align="center">
+  <a href="https://www.npmjs.com/package/@rohzzn/uidna"><img alt="npm version" src="https://img.shields.io/npm/v/%40rohzzn%2Fuidna?label=%40rohzzn%2Fuidna&color=2f5bea"></a>
+  <a href="https://www.npmjs.com/package/@rohzzn/uidna-schema"><img alt="schema version" src="https://img.shields.io/npm/v/%40rohzzn%2Fuidna-schema?label=%40rohzzn%2Fuidna-schema&color=2f5bea"></a>
+  <a href="https://github.com/rohzzn/uidna/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rohzzn/uidna/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1f9d6a"></a>
+  <img alt="Node 20.19+" src="https://img.shields.io/badge/node-%E2%89%A520.19-d98a1f">
+</p>
+
+<p align="center">
+  An MCP server and CLI for coding agents. The agent is the brain; UI DNA is the instrument.<br>
+  No model calls, no API keys, nothing leaves your machine.
+</p>
+
+---
+
+UI DNA is [REA](https://github.com/morluto/rea) for user interfaces. REA's promise is
+"see a feature you like, understand how it works, down to the binary, show the evidence,
+build it." UI DNA's promise: see an interface you like, understand how it is structured,
+how it behaves and how to reproduce it, down to the token, the component and the state
 transition, then rebuild it as code you own, with proof.
 
 ```text
-agent asks about a target → UI DNA captures, measures, explores
-                          → returns a UI DNA document + evidence + unknowns
+agent asks about a target  →  UI DNA captures, measures, explores
+                           →  returns a UI DNA document + evidence + unknowns
 agent reconstructs, verifies, repairs, reports
 ```
 
-## What it does today (Phase 1)
+## Contents
 
-Everything below is implemented and tested. The loop itself runs in CI with a real
-Chromium against [Fixture A](fixtures/a-marketing), a marketing page with a responsive
-navbar and hamburger menu, a hero, two call-to-action buttons, a three-card grid, an
-image, an FAQ accordion and a footer, at 1280, 768 and 390 pixels wide. Fixture A has
-no forms, no cross-origin links and no network side effects, so the side-effect marking,
-navigation blocking, robots.txt and rate-limit paths are proven by unit tests on real
-browser sessions and synthetic pages rather than by the fixture loop.
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [What ships today](#what-ships-today)
+- [Tools and commands](#tools-and-commands)
+- [The UI DNA document](#the-ui-dna-document)
+- [A measured run](#a-measured-run)
+- [Authorized use](#authorized-use)
+- [Limitations](#limitations)
+- [Development](#development)
+- [License](#license)
 
-- **Capture.** Playwright-launched Chromium for public URLs, or attach to your own Chrome
-  over the DevTools Protocol for sessions you are authorized to analyze. Collects the DOM,
-  computed styles filtered to rendering properties, bounding boxes, the accessibility tree,
-  fonts, assets, network metadata (no bodies, secrets redacted) and one screenshot per
-  viewport per state. Honors `robots.txt` and rate limits. Never bypasses access controls.
-- **Safe exploration.** Hovers, focuses, presses Escape and Tab, and clicks only
-  non-submitting buttons, summaries, tabs and disclosure or menu triggers. Nothing inside
-  a form, no navigating links, no deny-listed names (delete, pay, send, sign out, ...).
-  Every action is snapshotted, performed, diffed and reverted; a non-GET request marks the
-  transition as a side effect and it is never repeated. Everything skipped is reported
-  with its reason.
-- **Measurement.** Tokens from clustering measured values with sample counts per cluster;
-  component candidates from structural fingerprints with match counts, instances, varying
-  props, variants and a confidence derived from agreement, never from a guess.
-- **UI DNA document.** A validated, framework-neutral document
-  ([`@rohzzn/uidna-schema`](packages/schema), [reference](docs/ui-dna.md)) where every value
-  carries provenance: `measured`, `observed`, `inferred` (agent only) or `unknown` with a
-  reason.
-- **Generation.** A deterministic React + TypeScript + Tailwind + Vite baseline: semantic
-  HTML, components extracted from fingerprint matches with generated names for the agent
-  to rename, tokens as CSS variables and a Tailwind theme, observed transitions as React
-  state with the original ARIA attributes, labeled placeholders for unauthorized assets.
-  The project builds; its build is a CI test. Backend-dependent data is not modelled in
-  Phase 1: captures record network metadata, not response bodies, so no mocks are
-  generated yet and the limitation is stated in the generated README.
-- **Verification.** Pixel diff, SSIM, bounding-box geometry, computed-style and
-  missing-or-extra element checks per state and viewport; every recorded transition
-  replayed against the generated app with role and name locators. The output is a
-  structured DiffReport: one finding per concrete difference, with the measured original
-  and generated values, the attributed component or token and evidence references. No
-  single opaque score. Each attempt is kept; regressions and resolved findings are
-  reported against the previous attempt.
-- **Report.** A static HTML report with side-by-side screenshots, overlays, token tables,
-  component candidates, behavior replay results and limitations.
-
-## Install
+## Quick start
 
 ```bash
 npm install -g @rohzzn/uidna
 npx playwright install chromium
-uidna setup      # registers the MCP server in Claude Code, Codex and Cursor (asks first, backs up)
+uidna setup      # registers the MCP server in Claude Code, Codex and Cursor; asks first, backs up
 uidna doctor     # browser availability, CDP reachability, registration state
 ```
 
 `uidna setup` prints the planned changes to `~/.claude.json`, `~/.codex/config.toml` and
-`~/.cursor/mcp.json`, asks for confirmation and backs up every file it touches
-(`--scope project` writes `.mcp.json` and `.cursor/mcp.json` in the current directory
-instead; `--yes` skips the prompt). The registered command is `npx -y @rohzzn/uidna serve`
-(wrapped in `cmd /c` on Windows).
+`~/.cursor/mcp.json`, asks for confirmation and backs up every file it touches. Use
+`--scope project` to write `.mcp.json` and `.cursor/mcp.json` in the current directory
+instead, and `--yes` to skip the prompt. The registered command is
+`npx -y @rohzzn/uidna serve` (wrapped in `cmd /c` on Windows).
 
 Manual MCP configuration, if you prefer:
 
@@ -87,35 +69,71 @@ Manual MCP configuration, if you prefer:
 }
 ```
 
-The shipped skill ([`skills/uidna/SKILL.md`](skills/uidna/SKILL.md)) teaches the agent
-the loop. Copy it into your agent's skills directory, or point the agent at it.
+The shipped skill, [`skills/uidna/SKILL.md`](skills/uidna/SKILL.md), teaches the agent the
+loop. Copy it into your agent's skills directory (for Claude Code, `~/.claude/skills/uidna/`).
 
-## The loop, from a shell
+To run the whole loop without an agent:
 
 ```bash
 uidna reconstruct https://example.com ./example-clone --viewports 1280,768,390
 ```
 
-runs scan → explore (safe) → generate → verify → report and prints the DiffReport. Each
-step is also a command and an MCP tool with the same inputs and the same evidence
-envelope:
+## How it works
 
-| Command                              | Tool                     | What it answers                                                      |
-| ------------------------------------ | ------------------------ | -------------------------------------------------------------------- |
-| `uidna scan <url>`                   | `scan_interface`         | What is on the page at each viewport? Creates `./.uidna/<scan-id>/`. |
-| `uidna explore <scan>`               | `explore_interactions`   | What changes when I interact safely? Records states and transitions. |
-| `uidna inspect <scan>`               | `inspect_dna`            | Summary, one facet, one path, or the whole document.                 |
-| `uidna element <scan> <state>`       | `inspect_element`        | One node: box, style, tokens, a11y, ancestors, evidence.             |
-| `uidna components <scan>`            | `search_components`      | Fingerprinted component candidates in stable order.                  |
-| `uidna tokens <scan>`                | `extract_tokens`         | Token clusters with member values and sample counts.                 |
-| `uidna annotate <scan> <patches>`    | `annotate_dna`           | Apply the agent's readings with `inferred` / `agent` provenance.     |
-| `uidna generate <scan> <outDir>`     | `generate_project`       | The React baseline, installed and built.                             |
-| `uidna verify <scan> <outDir>`       | `verify_reconstruction`  | The DiffReport for this attempt, with regressions and resolved.      |
-| `uidna report <scan>`                | `report_reconstruction`  | The static HTML report.                                              |
-| `uidna export <scan>`                | `export_evidence`        | A portable evidence bundle with a manifest of digests.               |
-| `uidna reconstruct <url> <outDir>`   | `reconstruct_interface`  | The whole loop.                                                      |
+| Step | What happens | Who decides |
+| --- | --- | --- |
+| **Capture** | Chromium loads the page at each viewport. UI DNA records the DOM, computed styles filtered to rendering properties, bounding boxes, the accessibility tree, fonts, assets, network metadata and one screenshot per state. | UI DNA |
+| **Explore** | Safe interactions only: hover, focus, Escape, Tab, and clicks on non-submitting buttons, summaries, tabs and disclosure or menu triggers. Every action is snapshotted, performed, diffed and reverted. Anything inside a form, any navigating link and any deny-listed name is skipped and reported. | UI DNA |
+| **Measure** | Tokens come from clustering measured values, with sample counts. Component candidates come from structural fingerprints, with instances, varying props, variants and a confidence derived from agreement. | UI DNA |
+| **Understand and annotate** | The agent reads the document, names components and tokens, records what it infers and why, and authorizes assets the user owns. Agent readings are stored as `inferred` next to the measured values, never over them. | the agent |
+| **Generate** | A deterministic React + TypeScript + Tailwind + Vite baseline: semantic HTML, extracted components, tokens as CSS variables and a Tailwind theme, observed transitions as React state with the original ARIA attributes. | UI DNA |
+| **Verify** | Pixel diff, SSIM, geometry, computed styles and element presence per state and viewport; every recorded transition replayed. One finding per concrete difference, with the original and generated values. | UI DNA |
+| **Repair and report** | The agent edits the project against the DiffReport and re-verifies; regressions and resolved findings are tracked per attempt. A static HTML report shows the evidence. | the agent |
 
-Add `--json` to get the evidence envelope that MCP clients receive:
+Every value in the document carries provenance: `measured`, `observed`, `inferred` (agent
+only) or `unknown` with a reason. Nothing is rounded into a guess, and no result is a
+single blended score.
+
+## What ships today
+
+Phase 1 is complete: the loop from URL to verified React project, proven in CI with a real
+Chromium against [Fixture A](fixtures/a-marketing), a marketing page with a responsive
+navbar and hamburger menu, a hero, two call-to-action buttons, a three-card grid, an
+image, an FAQ accordion and a footer, at 1280, 768 and 390 pixels wide.
+
+- Two browser modes: Playwright-launched Chromium for public pages, and attach to your own
+  Chrome over the DevTools Protocol for sessions you are authorized to analyze.
+- `robots.txt` honored, per-origin rate limits, Chromium sandbox requested (with an honest
+  limitation when the host cannot provide one), secrets redacted before anything is stored.
+- Twelve tools with one evidence envelope, identical over MCP and the CLI; `setup` and
+  `doctor` on the CLI; `--json`, a config file and debug logging.
+- A versioned, framework-neutral schema published separately as
+  [`@rohzzn/uidna-schema`](packages/schema).
+- The generated project builds; its build, the two recorded transitions, and an injected
+  CSS and behavior regression are each a CI test.
+
+Fixture A has no forms, no cross-origin links and no network side effects, so the
+side-effect marking, navigation blocking, robots.txt and rate-limit paths are proven by
+unit tests on real browser sessions and synthetic pages rather than by the fixture loop.
+
+## Tools and commands
+
+| Command | Tool | Answers |
+| --- | --- | --- |
+| `uidna scan <url>` | `scan_interface` | What is on the page at each viewport? Creates `./.uidna/<scan-id>/`. |
+| `uidna explore <scan>` | `explore_interactions` | What changes when I interact safely? Records states and transitions. |
+| `uidna inspect <scan>` | `inspect_dna` | Summary, one facet, one path, or the whole document. |
+| `uidna element <scan> <state>` | `inspect_element` | One node: box, style, tokens, a11y, ancestors, evidence. |
+| `uidna components <scan>` | `search_components` | Fingerprinted component candidates in stable order. |
+| `uidna tokens <scan>` | `extract_tokens` | Token clusters with member values and sample counts. |
+| `uidna annotate <scan> <patches>` | `annotate_dna` | Apply the agent's readings with `inferred` / `agent` provenance. |
+| `uidna generate <scan> <outDir>` | `generate_project` | The React baseline, installed and built. |
+| `uidna verify <scan> <outDir>` | `verify_reconstruction` | The DiffReport for this attempt, with regressions and resolved findings. |
+| `uidna report <scan>` | `report_reconstruction` | The static HTML report. |
+| `uidna export <scan>` | `export_evidence` | A portable evidence bundle with a manifest of digests. |
+| `uidna reconstruct <url> <outDir>` | `reconstruct_interface` | The whole loop. |
+
+Every tool returns the same envelope; add `--json` on the CLI to see it:
 
 ```json
 {
@@ -129,7 +147,33 @@ Add `--json` to get the evidence envelope that MCP clients receive:
 
 The full catalog, generated from the contracts, is in [`docs/tools.md`](docs/tools.md).
 
-## A sample investigation
+## The UI DNA document
+
+A UI DNA document describes an interface the way an engineer needs it described to rebuild
+it: pages and navigation, observed states and the transitions between them, component
+candidates with their instances, visual tokens with the measurements behind them, layout
+constraints per node, observed behavior, assets with origin and authorization, and what
+could not be observed.
+
+```json
+{
+  "value": "248px",
+  "provenance": {
+    "kind": "measured",
+    "source": "computed-style",
+    "stateId": "st_01",
+    "viewport": { "width": 1280, "height": 800 },
+    "evidenceId": "ev_3f9a1c7b2d4e",
+    "capturedAt": "2026-10-13T17:29:00.000Z",
+    "confidence": 0.98
+  }
+}
+```
+
+The reference is [`docs/ui-dna.md`](docs/ui-dna.md); a complete validated example from
+Fixture A is in [`docs/examples/fixture-a.dna.json`](docs/examples/fixture-a.dna.json).
+
+## A measured run
 
 <!-- numbers:begin -->
 Measured on Fixture A (`http://127.0.0.1:65125/`) by scan `scan_20261013_176e54` with tool version 0.1.0:
@@ -150,6 +194,11 @@ Measured on Fixture A (`http://127.0.0.1:65125/`) by scan `scan_20261013_176e54`
 Pixel ratios depend on the fonts of the machine that rendered them; the counts do not.
 <!-- numbers:end -->
 
+Attempts 2 and 4 are the CI loop's injected regressions (a changed primary color, then a
+script that swallows clicks); attempts 3 and 5 are the reverts. The 21 baseline findings
+are all the unauthorized illustration rendered as a labeled placeholder, by design. The
+table is written by `scripts/readme-numbers.ts` from the scan that produced it.
+
 ## Authorized use
 
 Scan interfaces you own or are allowed to analyze. UI DNA never bypasses authentication,
@@ -158,15 +207,17 @@ redistributes third-party assets: unauthorized assets become labeled placeholder
 you mark them authorized with `annotate_dna`. See [DISCLAIMER.md](DISCLAIMER.md) and
 [SECURITY.md](SECURITY.md).
 
-Attaching to your own Chrome: start it with `--remote-debugging-port=9222`, open the page,
-then `uidna scan --cdp-endpoint http://localhost:9222`. The session stays yours; UI DNA
-only reads the page and performs the same safe interactions.
+To analyze an authenticated app, start your own Chrome with `--remote-debugging-port=9222`,
+open the page, then `uidna scan --cdp-endpoint http://localhost:9222`. The session stays
+yours; UI DNA reads the page and performs the same safe interactions.
 
 ## Limitations
 
 - One page per scan. Same-origin navigation and multi-page crawls are not in Phase 1.
 - `<iframe>` content and shadow DOM are not entered; they are reported as limitations.
 - Inline `<svg>` markup is not captured; such nodes become placeholders.
+- Backend-dependent data is not modelled: captures record network metadata, not response
+  bodies, so no mocks are generated yet and the generated README says so.
 - Breakpoints are observed at the scanned widths: a breakpoint token says the layout at
   that width differs from the next wider scanned width, not where the media query lies.
 - Spacing tokens are used values: a `margin: auto` shows up as the pixel margin it produced.
@@ -174,14 +225,13 @@ only reads the page and performs the same safe interactions.
   transitions are reproduced when the changed nodes live in the same section or component
   as the trigger. Every behavior the generator could not implement is listed in the
   generated README.
-- The generator is a baseline, not a finished product: generated names are placeholders,
-  text and element interleaving is simplified, and the agent is expected to repair against
-  the DiffReport.
+- The generator is a baseline, not a finished product: names are placeholders and the agent
+  is expected to repair against the DiffReport.
 - Verification compares at the scanned viewports with system fonts; cross-machine pixel
   diffs reflect font rendering differences, which is why findings carry the measured values
   rather than a single score.
 
-## Repository
+## Development
 
 ```text
 packages/schema/   @rohzzn/uidna-schema: Zod schema, JSON Schema, types, changelog
@@ -196,15 +246,20 @@ src/application/  workflows shared by the CLI and the MCP server
 src/server/        MCP adapter
 skills/uidna/      SKILL.md
 fixtures/          Fixture A
-tests/             end-to-end loop on Fixture A
+tests/             end-to-end loop on Fixture A and the MCP server over stdio
 ```
 
 ```bash
 npm ci
 npm run build
-npm test            # unit (real Chromium on Fixture A) + e2e loop
+npm run test:unit    # real Chromium against Fixture A and synthetic pages, no module mocks
+npm run test:e2e     # the Phase 1 loop and the MCP server over stdio (about 10 minutes)
 npm run docs:catalog
 ```
+
+Conventional Commits, ESM TypeScript in strict mode, Zod at every boundary, tagged errors
+with `Result`, no `any`, no non-null assertions, no floating promises. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

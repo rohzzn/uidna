@@ -15,6 +15,9 @@ import { withOutRoot } from './context.js';
 import { stateSummaries } from './inspect.js';
 import { reassembleDna, resolveLimits } from './scan.js';
 
+/** How many skipped interactions are spelled out in the prose `unknowns` list (the structured list is always complete). */
+const MAX_SKIPPED_DETAILS = 40;
+
 /** `explore_interactions`. */
 export async function exploreInteractions(
   baseCtx: WorkflowContext,
@@ -84,8 +87,17 @@ export async function exploreInteractions(
   const transitions = outcome.transitions.map((t) => ({ id: t.id, from: t.from, to: t.to, action: t.action, sideEffects: t.sideEffects, revert: t.revert }));
   const artifacts = ['explore.json', 'dna.json', ...outcome.newStateIds.flatMap((id) => [`states/${id}/capture.json`, `states/${id}/screenshot.png`])];
   const finalEvidence = ctx.ledger.withArtifacts(evidence, artifacts);
-  for (const skipped of outcome.record.skipped) {
+  // The structured `skipped` list in the result is complete; the prose list is summarized by
+  // reason so a page with hundreds of controls stays readable, and says where the rest is.
+  const byReason = new Map<string, number>();
+  for (const skipped of outcome.record.skipped) byReason.set(skipped.reason, (byReason.get(skipped.reason) ?? 0) + 1);
+  for (const [reason, count] of [...byReason.entries()].sort((a, b) => b[1] - a[1])) unknowns.push(`${count} interaction${count === 1 ? '' : 's'} skipped: ${reason}`);
+  const detailed = outcome.record.skipped.slice(0, MAX_SKIPPED_DETAILS);
+  for (const skipped of detailed) {
     unknowns.push(`${skipped.stateId} ${skipped.tag}${skipped.role ? ` [${skipped.role}]` : ''}${skipped.name ? ` "${skipped.name}"` : ''}: ${skipped.reason}`);
+  }
+  if (outcome.record.skipped.length > detailed.length) {
+    unknowns.push(`${outcome.record.skipped.length - detailed.length} more skipped interactions are listed in result.skipped and explore.json`);
   }
   if (outcome.record.partial) limitations.push('exploration ended early (budget, cancellation or browser failure); coverage counts tell how far it got');
 
