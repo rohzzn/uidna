@@ -24,6 +24,8 @@ export interface DoctorReport {
   readonly chromium: BrowserAvailability['chromium'];
   /** Null when no CDP endpoint was given. */
   readonly cdp: BrowserAvailability['cdp'];
+  /** True when the CDP endpoint was asked for (flag or config): an unreachable one is then a problem, not just information. */
+  readonly cdpRequired: boolean;
   readonly registrations: readonly RegistrationStatus[];
   readonly outRoot: { readonly path: string; readonly writable: boolean };
   /** Number of scan directories under `outRoot`. */
@@ -42,6 +44,12 @@ export interface DoctorDeps {
   readonly outRoot: string;
   /** When set, CDP reachability is checked and reported. */
   readonly cdpEndpoint?: string;
+  /**
+   * Whether an unreachable `cdpEndpoint` is a problem. Default true. The CLI passes false when it
+   * probes the default endpoint on its own: attaching to Chrome is optional, so a Chrome that is not
+   * running then is reported, not counted as a failure.
+   */
+  readonly cdpRequired?: boolean;
   /** Defaults to `process.version`. */
   readonly nodeVersion?: string;
   /** Registration name; defaults to `uidna`. */
@@ -90,6 +98,7 @@ export async function runDoctor(deps: DoctorDeps): Promise<Result<DoctorReport>>
     playwright: { version: availability.playwrightVersion },
     chromium: availability.chromium,
     cdp: availability.cdp,
+    cdpRequired: deps.cdpEndpoint !== undefined && deps.cdpRequired !== false,
     registrations: registrations.value,
     outRoot: { path: outRootPath, writable },
     scans,
@@ -111,7 +120,7 @@ function collectProblems(report: DoctorReport, deps: DoctorDeps): string[] {
   if (!report.chromium.available) {
     problems.push(`Chromium is not installed: run npx playwright install chromium (${report.chromium.detail})`);
   }
-  if (deps.cdpEndpoint !== undefined) {
+  if (deps.cdpEndpoint !== undefined && report.cdpRequired) {
     if (!report.cdp?.reachable) {
       const detail = report.cdp ? ` (${report.cdp.detail})` : '';
       problems.push(
@@ -176,7 +185,8 @@ export function formatDoctor(report: DoctorReport): string {
     lines.push('  cdp          not checked (pass --cdp <endpoint> to test a running Chrome)');
   } else {
     const browser = report.cdp.browser ? `  ${report.cdp.browser}` : '';
-    lines.push(`  cdp          ${report.cdp.endpoint}  ${report.cdp.reachable ? `reachable${browser}` : `unreachable  (${report.cdp.detail})`}`);
+    const optional = report.cdpRequired ? '' : '; optional, only needed to attach to your own Chrome (pass --cdp to require it)';
+    lines.push(`  cdp          ${report.cdp.endpoint}  ${report.cdp.reachable ? `reachable${browser}` : `unreachable  (${report.cdp.detail}${optional})`}`);
   }
   lines.push('');
 

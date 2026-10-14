@@ -5,6 +5,18 @@ All notable changes to `@rohzzn/uidna` are documented here. The format follows
 semantic versioning. The document schema has its own changelog in
 [`packages/schema/CHANGELOG.md`](packages/schema/CHANGELOG.md).
 
+## [Unreleased]
+
+### Changed
+
+- `uidna setup` registers `npx -y @rohzzn/uidna@latest serve`. With the bare package name,
+  npx run inside a checkout of this repository resolved to the checkout and the server
+  failed to start; the tag also keeps agents on the newest release.
+- `uidna doctor` reports an unreachable Chrome on the default debugging port as optional
+  information. It is a problem only when an endpoint is named with `--cdp` or in config.
+- CI uses `actions/checkout`, `actions/setup-node` and `actions/upload-artifact` v7, which
+  run on Node 24.
+
 ## [0.2.0] - 2026-10-14
 
 Phase 2: sites, forms and data. Every capability is an end-to-end CI gate on its own

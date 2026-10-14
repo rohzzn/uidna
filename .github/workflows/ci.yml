@@ -10,8 +10,8 @@ jobs:
     name: lint, typecheck, unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -24,7 +24,7 @@ jobs:
       - run: npm run test:unit
       - name: Upload unit diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-diagnostics
           path: |
@@ -45,8 +45,8 @@ jobs:
           - { name: 'Phase 2 multi-page on Fixture D', files: 'tests/multipage.e2e.test.ts' }
           - { name: 'Phase 2 forms and data on Fixture C', files: 'tests/forms.e2e.test.ts' }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -56,7 +56,7 @@ jobs:
       - run: npx vitest run --project e2e ${{ matrix.suite.files }}
       - name: Upload loop artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-${{ strategy.job-index }}
           path: |

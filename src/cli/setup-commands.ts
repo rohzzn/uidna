@@ -31,7 +31,7 @@ export interface SetupCommandDeps {
   readonly buildContext: (globals: { json?: boolean; debug?: boolean; outRoot?: string; cwd?: string }) => Promise<WorkflowContext>;
 }
 
-/** The server command to register: `npx -y @rohzzn/uidna serve`, wrapped in `cmd /c` on native Windows, or a local `node dist/cli.js serve`. */
+/** The server command to register: `npx -y @rohzzn/uidna@latest serve`, wrapped in `cmd /c` on native Windows, or a local `node dist/cli.js serve`. */
 export function defaultServerCommand(options: { local: boolean; platform?: NodeJS.Platform }): ServerCommand {
   const platform = options.platform ?? process.platform;
   if (options.local) {
@@ -65,7 +65,7 @@ export function registerSetupCommands(program: Command, deps: SetupCommandDeps):
     .description('Register the MCP server in Claude Code, Codex and Cursor (prints the plan, asks, backs up)')
     .option('--targets <list>', 'comma-separated: claude-code,codex,cursor (default all)')
     .option('--scope <scope>', 'user (default) or project')
-    .option('--local', 'register this checkout (node dist/cli.js serve) instead of npx -y @rohzzn/uidna serve')
+    .option('--local', 'register this checkout (node dist/cli.js serve) instead of npx -y @rohzzn/uidna@latest serve')
     .option('--yes', 'apply without asking')
     .option('--no-backup', 'do not back up existing config files')
     .option('--home <dir>', 'home directory to write into (tests)')
@@ -137,6 +137,8 @@ export function registerSetupCommands(program: Command, deps: SetupCommandDeps):
         cwd: ctx.cwd,
         outRoot: ctx.store.root,
         cdpEndpoint: options.cdp ?? ctx.config.cdpEndpoint ?? 'http://localhost:9222',
+        // Only an endpoint the user named makes an unreachable Chrome a problem; the default probe is informational.
+        cdpRequired: options.cdp !== undefined || ctx.config.cdpEndpoint !== undefined,
       });
       if (!report.ok) {
         process.stderr.write(`${describeError(report.error)}\n`);

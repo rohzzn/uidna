@@ -57,14 +57,14 @@ uidna doctor     # browser availability, CDP reachability, registration state
 `~/.cursor/mcp.json`, asks for confirmation and backs up every file it touches. Use
 `--scope project` to write `.mcp.json` and `.cursor/mcp.json` in the current directory
 instead, and `--yes` to skip the prompt. The registered command is
-`npx -y @rohzzn/uidna serve` (wrapped in `cmd /c` on Windows).
+`npx -y @rohzzn/uidna@latest serve` (wrapped in `cmd /c` on Windows).
 
 Manual MCP configuration, if you prefer:
 
 ```json
 {
   "mcpServers": {
-    "uidna": { "type": "stdio", "command": "npx", "args": ["-y", "@rohzzn/uidna", "serve"] }
+    "uidna": { "type": "stdio", "command": "npx", "args": ["-y", "@rohzzn/uidna@latest", "serve"] }
   }
 }
 ```
