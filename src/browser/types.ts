@@ -129,7 +129,8 @@ export interface ActionLocator {
 
 /** An action the browser can perform on the current page. */
 export type UiAction =
-  | { readonly kind: 'click'; readonly target: ActionLocator }
+  /** `allowNavigation: 'same-origin'` lets the click follow a same-origin document navigation (crawled pages); cross-origin is always blocked. */
+  | { readonly kind: 'click'; readonly target: ActionLocator; readonly allowNavigation?: 'same-origin' }
   | { readonly kind: 'hover'; readonly target: ActionLocator }
   | { readonly kind: 'focus'; readonly target: ActionLocator }
   | { readonly kind: 'blur' }
@@ -154,6 +155,8 @@ export interface ActionOutcome {
   readonly dialogs: readonly string[];
   /** Redacted URL of a document navigation the action requested and UI DNA blocked (same- or cross-origin). */
   readonly blockedNavigation?: string;
+  /** Redacted URLs of non-GET requests (form submissions, XHR/fetch) the action triggered and UI DNA blocked (fill/submit actions). */
+  readonly blockedRequests?: readonly string[];
   readonly durationMs: number;
 }
 

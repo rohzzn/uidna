@@ -80,7 +80,7 @@ export const ScanRecordSchema = z.strictObject({
         pageId: z.string(),
         url: z.string(),
         depth: z.number().int().min(0),
-        /** Navigation edge id (in dna.json) that led to the page, null for the seed. */
+        /** `<fromPageId>:<nodePath>` of the link that led the crawl to this page, null for the seed; the assembler resolves it to a navigation edge id. */
         discoveredVia: z.string().nullable(),
         title: z.string(),
       }),

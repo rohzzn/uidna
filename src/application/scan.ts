@@ -14,12 +14,59 @@ import { BudgetTracker, resolveBudget, type BudgetLimits } from '../domain/budge
 import { isoNow } from '../domain/clock.js';
 import { describeError, toError, uidnaError } from '../domain/errors.js';
 import { envelope, type Envelope } from '../domain/evidence.js';
-import { newScanId, stateId as makeStateId } from '../domain/ids.js';
+import { newScanId, sequentialId, stateId as makeStateId } from '../domain/ids.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { WorkflowContext } from './context.js';
 import { withOutRoot } from './context.js';
 import { stateSummaries } from './inspect.js';
 import type { ScanRecord, StateRecord } from './records.js';
+
+/** Identity of a page for crawling: the URL without its fragment, with a normalized trailing slash. */
+export function pageKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    const path = parsed.pathname.endsWith('/') && parsed.pathname.length > 1 ? parsed.pathname.slice(0, -1) : parsed.pathname;
+    return `${parsed.origin}${path}${parsed.search}`;
+  } catch {
+    return url;
+  }
+}
+
+const NON_DOCUMENT_EXTENSION = /\.(png|jpe?g|gif|webp|avif|svg|ico|pdf|zip|gz|tgz|mp4|webm|mp3|wav|woff2?|ttf|otf|css|js|mjs|json|xml|txt|csv)$/i;
+
+/** Same-origin document links on a captured page that a crawl may follow, deduplicated by page key. */
+export function discoverLinks(capture: CapturedState, pageUrl: string, crawl: { include?: string[] | undefined; exclude?: string[] | undefined } | undefined): { url: string; nodePath: string }[] {
+  let origin: URL;
+  try {
+    origin = new URL(pageUrl);
+  } catch {
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: { url: string; nodePath: string }[] = [];
+  for (const node of capture.nodes) {
+    if (node.tag !== 'a') continue;
+    const href = node.attrs.href;
+    if (href === undefined || href.trim() === '' || href.trim().startsWith('#')) continue;
+    let resolved: URL;
+    try {
+      resolved = new URL(href, pageUrl);
+    } catch {
+      continue;
+    }
+    if (resolved.origin !== origin.origin || !/^https?:$/.test(resolved.protocol)) continue;
+    if (NON_DOCUMENT_EXTENSION.test(resolved.pathname)) continue;
+    if (crawl?.include && crawl.include.length > 0 && !crawl.include.some((prefix) => resolved.pathname.startsWith(prefix))) continue;
+    if (crawl?.exclude?.some((prefix) => resolved.pathname.startsWith(prefix))) continue;
+    resolved.hash = '';
+    const key = pageKey(resolved.href);
+    if (seen.has(key) || key === pageKey(pageUrl)) continue;
+    seen.add(key);
+    out.push({ url: resolved.href, nodePath: node.path });
+  }
+  return out;
+}
 
 /** Origin (scheme, host, port) of a CDP endpoint; the path of a ws:// endpoint is a debugging token and is never stored. */
 export function endpointOrigin(endpoint: string): string {
@@ -57,7 +104,17 @@ export async function captureState(
   ctx: WorkflowContext,
   session: BrowserSession,
   scan: ScanRecord,
-  options: { stateId: string; kind: 'base' | 'derived'; parentStateId: string | null; viaTransitionId: string | null; evidenceId: string; budget: BudgetTracker },
+  options: {
+    stateId: string;
+    /** Page the state belongs to; defaults to the scan's seed page. */
+    pageId?: string;
+    kind: 'base' | 'derived';
+    parentStateId: string | null;
+    viaTransitionId: string | null;
+    evidenceId: string;
+    budget: BudgetTracker;
+    captureBodies?: 'none' | 'json';
+  },
 ): Promise<Result<{ capture: CapturedState; record: StateRecord }>> {
   const scanDir = ctx.store.scanDir(scan.scanId);
   const stateDir = ctx.store.stateDir(scan.scanId, options.stateId);
@@ -70,6 +127,7 @@ export async function captureState(
     screenshotPath: join(stateDir, 'screenshot.png'),
     assetDir: join(scanDir, 'assets'),
     maxHeight: 4000,
+    ...(options.captureBodies === undefined ? {} : { captureBodies: options.captureBodies }),
   });
   if (!captured.ok) return captured;
   const capture = relativizeCapture(ctx, scan.scanId, captured.value);
@@ -78,6 +136,7 @@ export async function captureState(
   if (!saved.ok) return saved;
   const record: StateRecord = {
     stateId: options.stateId,
+    pageId: options.pageId ?? scan.pageId,
     kind: options.kind,
     parentStateId: options.parentStateId,
     viewport: capture.viewport,
@@ -141,8 +200,13 @@ export async function scanInterface(
   const viewports = resolveViewports(input.viewports, ctx.config.viewports);
   const first = viewports[0];
   if (!first) return err(uidnaError('validation', 'at least one viewport is required'));
-  const limits = resolveLimits(ctx, input.budget);
+  const maxPages = input.crawl?.maxPages ?? 1;
+  // A crawl of N pages needs a page budget of at least N unless the caller bounded it explicitly.
+  const requestedLimits = resolveLimits(ctx, input.budget);
+  const limits: BudgetLimits =
+    input.budget?.pages === undefined && requestedLimits.pages !== null && requestedLimits.pages < maxPages ? { ...requestedLimits, pages: maxPages } : requestedLimits;
   const budget = new BudgetTracker(limits, ctx.clock, ctx.signal);
+  const pages: NonNullable<ScanRecord['pages']> = [];
   const scanId = newScanId(ctx.clock.now());
   const now = isoNow(ctx.clock);
   const limitations: string[] = [];
@@ -167,6 +231,7 @@ export async function scanInterface(
     browser: { mode: session.mode, name: 'chromium', version: null },
     viewports,
     pageId: 'pg_01',
+    pages: [],
     status: 'capturing',
     budget: { limits, used: budget.usage() },
     states: [],
@@ -205,39 +270,96 @@ export async function scanInterface(
     }
     if (session.sandboxed === false) limitations.push('Chromium ran without its sandbox: this host could not start a sandboxed Chromium');
 
-    for (const [index, viewport] of viewports.entries()) {
-      const stop = budget.check();
-      if (stop) {
-        unknowns.push(`viewport ${viewport.width}: not captured (${stop.message})`);
-        continue;
+    // Breadth-first crawl over same-origin links; the seed page is depth 0. Cross-origin links are
+    // recorded by the assembler as navigation edges but never followed.
+    const queue: { url: string; depth: number; discoveredVia: string | null }[] = [{ url: scan.target.url, depth: 0, discoveredVia: null }];
+    const visited = new Set<string>([pageKey(scan.target.url)]);
+    while (queue.length > 0 && pages.length < maxPages) {
+      const next = queue.shift();
+      if (next === undefined) break;
+      if (pages.length > 0) {
+        const stop = budget.check();
+        if (stop || budget.wouldExceed('pages')) {
+          unknowns.push(`page ${next.url}: not crawled (${stop ? stop.message : 'page budget exhausted'})`);
+          continue;
+        }
+        budget.consumePage();
+        ctx.progress.report({ message: `loading ${next.url} (page ${pages.length + 1} of at most ${maxPages})` });
+        const navigated = await session.navigate(next.url, { waitUntil: 'load', timeoutMs: Math.min(30_000, Math.max(5_000, budget.remainingMs())) });
+        if (!navigated.ok) {
+          unknowns.push(`page ${next.url}: not crawled (${describeError(navigated.error)})`);
+          continue;
+        }
+        if (pageKey(navigated.value.url) !== pageKey(next.url) && visited.has(pageKey(navigated.value.url))) {
+          unknowns.push(`page ${next.url}: redirected to an already crawled page`);
+          continue;
+        }
+        visited.add(pageKey(navigated.value.url));
+        next.url = redactUrl(navigated.value.url);
       }
-      ctx.progress.report({ message: `capturing ${viewport.width}×${viewport.height}`, current: index + 2, total: viewports.length + 2 });
-      const resized = await session.setViewport(viewport);
-      if (!resized.ok) {
-        unknowns.push(`viewport ${viewport.width}: not captured (${describeError(resized.error)})`);
-        continue;
+      const pageId = sequentialId('pg', pages.length + 1);
+      let title = '';
+      let widest: CapturedState | null = null;
+      for (const [index, viewport] of viewports.entries()) {
+        const stop = budget.check();
+        if (stop) {
+          unknowns.push(`${pageId} viewport ${viewport.width}: not captured (${stop.message})`);
+          continue;
+        }
+        ctx.progress.report({ message: `capturing ${pageId} at ${viewport.width}×${viewport.height}`, current: index + 2, total: viewports.length + 2 });
+        const resized = await session.setViewport(viewport);
+        if (!resized.ok) {
+          unknowns.push(`${pageId} viewport ${viewport.width}: not captured (${describeError(resized.error)})`);
+          continue;
+        }
+        const stabilized = await session.stabilize();
+        if (!stabilized.ok) limitations.push(`${pageId} viewport ${viewport.width}: could not freeze animations (${describeError(stabilized.error)})`);
+        const stable = await session.waitForStability({ timeoutMs: Math.min(8_000, Math.max(1_000, budget.remainingMs())) });
+        if (stable.ok && !stable.value.stable) limitations.push(`${pageId} viewport ${viewport.width}: page kept changing for ${stable.value.waitedMs}ms before capture`);
+        const stateId = makeStateId(scan.states.length + 1);
+        const captured = await captureState(ctx, session, scan, {
+          stateId,
+          pageId,
+          kind: 'base',
+          parentStateId: null,
+          viaTransitionId: null,
+          evidenceId: evidence.id,
+          budget,
+          ...(input.captureBodies === undefined ? {} : { captureBodies: input.captureBodies }),
+        });
+        if (!captured.ok) {
+          unknowns.push(`${pageId} viewport ${viewport.width}: capture failed (${describeError(captured.error)})`);
+          continue;
+        }
+        scan.states.push(captured.value.record);
+        limitations.push(...captured.value.capture.limitations.map((l) => `${pageId} viewport ${viewport.width}: ${l}`));
+        title = captured.value.capture.title;
+        if (widest === null || captured.value.capture.viewport.width > widest.viewport.width) widest = captured.value.capture;
+        scan.budget = { limits, used: budget.usage() };
+        await ctx.store.saveScan(scan);
       }
-      const stabilized = await session.stabilize();
-      if (!stabilized.ok) limitations.push(`viewport ${viewport.width}: could not freeze animations (${describeError(stabilized.error)})`);
-      const stable = await session.waitForStability({ timeoutMs: Math.min(8_000, Math.max(1_000, budget.remainingMs())) });
-      if (stable.ok && !stable.value.stable) limitations.push(`viewport ${viewport.width}: page kept changing for ${stable.value.waitedMs}ms before capture`);
-      const stateId = makeStateId(scan.states.length + 1);
-      const captured = await captureState(ctx, session, scan, { stateId, kind: 'base', parentStateId: null, viaTransitionId: null, evidenceId: evidence.id, budget });
-      if (!captured.ok) {
-        unknowns.push(`viewport ${viewport.width}: capture failed (${describeError(captured.error)})`);
-        continue;
+      pages.push({ pageId, url: next.url, depth: next.depth, discoveredVia: next.discoveredVia, title });
+      scan.pages = pages;
+      if (maxPages > 1 && widest !== null) {
+        for (const link of discoverLinks(widest, next.url, input.crawl)) {
+          const key = pageKey(link.url);
+          if (visited.has(key)) continue;
+          visited.add(key);
+          queue.push({ url: link.url, depth: next.depth + 1, discoveredVia: `${pageId}:${link.nodePath}` });
+        }
+        if (pages.length >= maxPages && queue.length > 0) {
+          limitations.push(`crawl stopped at ${maxPages} page${maxPages === 1 ? '' : 's'}; ${queue.length} discovered same-origin link target${queue.length === 1 ? '' : 's'} not visited`);
+        }
       }
-      scan.states.push(captured.value.record);
-      limitations.push(...captured.value.capture.limitations.map((l) => `viewport ${viewport.width}: ${l}`));
-      scan.budget = { limits, used: budget.usage() };
-      await ctx.store.saveScan(scan);
     }
   } finally {
     await session.close();
   }
 
   scan.budget = { limits, used: budget.usage() };
-  scan.status = scan.states.length === viewports.length ? 'captured' : scan.states.length > 0 ? 'partial' : 'failed';
+  scan.pages = pages;
+  const expectedStates = pages.length * viewports.length;
+  scan.status = scan.states.length === expectedStates && pages.length > 0 ? 'captured' : scan.states.length > 0 ? 'partial' : 'failed';
   scan.steps.scan = { at: isoNow(ctx.clock), evidenceId: evidence.id };
   if (scan.states.length === 0) {
     await ctx.store.saveScan(scan);
