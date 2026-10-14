@@ -209,7 +209,8 @@ describe('reference example', () => {
     const result = validateUiDna(JSON.parse(text));
     expect(formatIssues(result)).toEqual([]);
     if (!result.success) return;
-    expect(result.data.dnaVersion).toBe(UI_DNA_VERSION);
+    // The example is regenerated from a real scan after schema releases; it must stay readable by this version.
+    expect(isCompatibleVersion(result.data.dnaVersion)).toBe(true);
     expect(result.data.states.items.length).toBeGreaterThan(0);
     expect(result.data.states.transitions.length).toBeGreaterThan(0);
   });

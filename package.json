@@ -1,6 +1,6 @@
 {
   "name": "@rohzzn/uidna",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reverse-engineer any user interface into a UI DNA document, rebuild it as code you own, and prove it with a DiffReport. MCP server and CLI for coding agents.",
   "license": "MIT",
   "type": "module",
@@ -44,7 +44,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@rohzzn/uidna-schema": "^0.1.0",
+    "@rohzzn/uidna-schema": "^0.2.0",
     "commander": "^15.0.0",
     "pixelmatch": "^8.0.0",
     "playwright": "^1.64.0",

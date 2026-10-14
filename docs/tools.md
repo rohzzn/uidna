@@ -45,11 +45,13 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 | `viewports` | array of integer | no | Viewport widths in CSS pixels. Heights are derived: ≥1200 → 800, ≥700 → 1024, otherwise 844. |
 | `budget` | object | no | Per-scan budget. Exhaustion ends the step with partial artifacts and a diagnostic. |
 | `headless` | boolean | no | Launch mode only. Default true. |
+| `crawl` | object | no | Breadth-first crawl of same-origin links discovered on captured pages. Cross-origin links are recorded, never followed. |
+| `captureBodies` | "none" \| "json" | no | Store JSON response bodies of XHR/fetch requests as data assets (redacted, size-capped). Default none. |
 | `outRoot` | string | no | Directory that holds scans. Default ./.uidna |
 
 **Result fields**
 
-`scanId`, `scanDir`, `target`, `states`, `assets`, `budget`, `dnaPath`
+`scanId`, `scanDir`, `target`, `pages`, `states`, `assets`, `budget`, `dnaPath`
 
 ### `explore_interactions`
 
@@ -64,15 +66,17 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `scanId` | string | yes | Scan id returned by scan_interface, e.g. scan_20261013_3f9a1c. |
-| `policy` | "safe" | no | Only "safe" exists in Phase 1. |
+| `policy` | "safe" \| "forms" | no | "safe" (default) never touches forms. "forms" additionally fills same-origin form controls with synthetic values and submits to observe client-side validation; the submission request itself is blocked and recorded as a side effect. |
 | `budget` | object | no | Per-scan budget. Exhaustion ends the step with partial artifacts and a diagnostic. |
 | `viewports` | array of integer | no | Subset of the scanned viewports to explore. Default all. |
+| `pages` | array of string | no | Subset of page ids to explore. Default all. |
 | `denyNames` | array of string | no | Additional accessible-name words that must never be clicked. |
+| `formValues` | object | no | Synthetic values per control name or id for the forms policy. Never real credentials. |
 | `outRoot` | string | no |  |
 
 **Result fields**
 
-`scanId`, `policy`, `coverage`, `newStates`, `transitions`, `skipped`, `dnaPath`
+`scanId`, `policy`, `coverage`, `coverageByPage`, `newStates`, `transitions`, `skipped`, `dnaPath`
 
 ### `inspect_dna`
 
@@ -196,6 +200,8 @@ Effects: writes artifacts, destructive, idempotent, reaches the network. Long-ru
 | --- | --- | --- | --- |
 | `scanId` | string | yes | Scan id returned by scan_interface, e.g. scan_20261013_3f9a1c. |
 | `outDir` | string | yes | Directory for the generated project. Created if missing; existing generated files are overwritten, other files are kept. |
+| `router` | "none" \| "react-router" | no | How pages are wired: "react-router" (default when the document has more than one page) or "none". |
+| `behaviorTests` | boolean | no | Also write Playwright tests that replay every recorded transition against the generated app. Default true. |
 | `install` | boolean | no | Run npm install. Default true. |
 | `build` | boolean | no | Run the production build after install. Default true. |
 | `outRoot` | string | no |  |
@@ -222,6 +228,7 @@ Effects: writes artifacts, non-destructive, not idempotent, local only. Long-run
 | `thresholds` | object | no |  |
 | `label` | string | no | Free-text label for this attempt, e.g. "after fixing hero spacing". |
 | `build` | boolean | no | Rebuild the project before verifying. Default true. |
+| `runGeneratedTests` | boolean | no | Also run the generated Playwright behavior tests and report their outcome. Default false. |
 | `outRoot` | string | no |  |
 
 **Result fields**
@@ -286,7 +293,10 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 | `outDir` | string | yes | Directory for the generated project. |
 | `viewports` | array of integer | no | Viewport widths in CSS pixels. Heights are derived: ≥1200 → 800, ≥700 → 1024, otherwise 844. |
 | `budget` | object | no | Per-scan budget. Exhaustion ends the step with partial artifacts and a diagnostic. |
-| `explore` | boolean | no | Run safe exploration. Default true. |
+| `crawl` | object | no | Breadth-first crawl of same-origin links discovered on captured pages. Cross-origin links are recorded, never followed. |
+| `captureBodies` | "none" \| "json" | no |  |
+| `policy` | "safe" \| "forms" | no | Exploration policy. Default safe. |
+| `explore` | boolean | no | Run exploration. Default true. |
 | `install` | boolean | no | Run npm install in the generated project. Default true. |
 | `headless` | boolean | no |  |
 | `outRoot` | string | no |  |

@@ -32,6 +32,17 @@ export function serveStatic(dir, port = 0) {
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
+      // Fixture API: POST /api/* answers with a small JSON acknowledgement (no state is kept).
+      if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
+        let size = 0;
+        req.on('data', (chunk) => { size += chunk.length; });
+        req.on('end', () => {
+          const body = JSON.stringify({ ok: true, received: size });
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(body) });
+          res.end(body);
+        });
+        return;
+      }
       let pathname = decodeURIComponent(url.pathname);
       if (pathname.endsWith('/')) pathname += 'index.html';
       const target = normalize(join(root, pathname));

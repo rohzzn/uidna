@@ -1,3 +1,4 @@
+import { UI_DNA_VERSION } from '@rohzzn/uidna-schema';
 import { describe, expect, it } from 'vitest';
 import { formatIssues, validateUiDna, type Transition, type UiDnaDocument } from '@rohzzn/uidna-schema';
 import type { CapturedState } from '../browser/types.js';
@@ -34,7 +35,7 @@ describe('assembleDna', () => {
   it('returns a document that validates with no issues', () => {
     const validation = validateUiDna(doc);
     expect(formatIssues(validation)).toEqual([]);
-    expect(doc.dnaVersion).toBe('0.1.0');
+    expect(doc.dnaVersion).toBe(UI_DNA_VERSION);
     expect(doc.target).toMatchObject({ kind: 'url', url: FIXTURE_A_URL, scanId: FIXTURE_A_SCAN_ID, scannedAt: FIXTURE_A_CAPTURED_AT, tool: { name: 'uidna', version: '0.1.0' } });
     expect(doc.target.viewports).toEqual([
       { width: 1280, height: 800 },

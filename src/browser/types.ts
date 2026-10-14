@@ -25,7 +25,8 @@ export interface CapturedFont {
 /** A resource referenced by the page (image, svg, font, video). */
 export interface CapturedAsset {
   readonly id: string;
-  readonly kind: 'font' | 'image' | 'svg' | 'video' | 'icon' | 'other';
+  /** `data` is a captured JSON response (only when `captureBodies` is on). */
+  readonly kind: 'font' | 'image' | 'svg' | 'video' | 'icon' | 'data' | 'other';
   readonly url: string;
   readonly origin: 'same-origin' | 'cross-origin' | 'inline' | 'data';
   readonly mime?: string;
@@ -37,6 +38,8 @@ export interface CapturedAsset {
   readonly usedBy: readonly string[];
   /** Local copy relative to the scan directory, when stored. */
   readonly localPath?: string;
+  /** For `data` assets: the request that produced the response (URL redacted). */
+  readonly request?: { readonly method: string; readonly status: number | null; readonly mime: string | null };
 }
 
 /** Network request metadata. Bodies are never stored; secret headers are redacted. */
@@ -107,6 +110,10 @@ export interface CaptureOptions {
   readonly assetDir?: string;
   /** Maximum bytes per stored asset copy. */
   readonly maxAssetBytes?: number;
+  /** Store JSON response bodies of XHR/fetch requests as `data` assets (redacted). Default 'none'. */
+  readonly captureBodies?: 'none' | 'json';
+  /** Maximum bytes of one captured body. */
+  readonly maxBodyBytes?: number;
 }
 
 /** How to locate an element for an action. Prefer `nodeId` from the last capture; fall back to role+name. */
@@ -127,6 +134,10 @@ export type UiAction =
   | { readonly kind: 'focus'; readonly target: ActionLocator }
   | { readonly kind: 'blur' }
   | { readonly kind: 'key'; readonly key: string; readonly target?: ActionLocator }
+  /** Type a synthetic value into a text-like control (select by value for <select>, check for checkboxes when value is 'true'). */
+  | { readonly kind: 'fill'; readonly target: ActionLocator; readonly value: string }
+  /** Submit the form that contains the target (or the target form itself); the resulting request is blocked by the navigation guard. */
+  | { readonly kind: 'submit'; readonly target: ActionLocator }
   | { readonly kind: 'scroll'; readonly y: number }
   /** Move the pointer to the top-left corner so nothing is hovered. */
   | { readonly kind: 'reset-pointer' };

@@ -632,7 +632,9 @@ async function performTransition(run: Run, transition: Transition, fromState: Ui
       uiAction = located === null ? { kind: 'key', key: action.key } : { kind: 'key', key: action.key, target: located.locator };
     } else {
       if (located === null) return refused('the recorded action has no target');
-      uiAction = { kind: action.type, target: located.locator };
+      if (action.type === 'fill') uiAction = { kind: 'fill', target: located.locator, value: action.value ?? '' };
+      else if (action.type === 'submit') uiAction = { kind: 'submit', target: located.locator };
+      else uiAction = { kind: action.type, target: located.locator };
     }
     const outcome = await session.act(uiAction);
     if (!outcome.ok) return refused(describeError(outcome.error));

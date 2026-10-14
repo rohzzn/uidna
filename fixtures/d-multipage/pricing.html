@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lumen — Pricing</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar" aria-label="Primary">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Lumen</span></a>
+      <ul class="nav-menu">
+        <li><a class="nav-link" href="/">Home</a></li>
+        <li><a class="nav-link" href="/features.html">Features</a></li>
+        <li><a class="nav-link" href="/pricing.html" aria-current="page">Pricing</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section class="page-intro" aria-labelledby="pricing-title">
+      <h1 class="page-title" id="pricing-title">Simple pricing</h1>
+      <p class="page-lead">Pay monthly or save with yearly billing.</p>
+      <button class="toggle" type="button" id="billing" aria-pressed="false">Yearly billing (save 20%)</button>
+    </section>
+
+    <section class="plans" aria-labelledby="plans-title">
+      <h2 class="section-title" id="plans-title">Plans</h2>
+      <div class="plan-grid">
+        <article class="plan">
+          <h3 class="plan-title">Free</h3>
+          <p class="plan-price"><span class="amount" data-monthly="$0" data-yearly="$0">$0</span><span class="period"> / month</span></p>
+          <p class="plan-body">Unlimited notes on one device, seven days of history.</p>
+          <a class="button button-secondary" href="/">Start free</a>
+        </article>
+        <article class="plan plan-featured">
+          <h3 class="plan-title">Pro</h3>
+          <p class="plan-price"><span class="amount" data-monthly="$8" data-yearly="$6">$8</span><span class="period"> / month</span></p>
+          <p class="plan-body">Every device, unlimited history, shared notebooks.</p>
+          <a class="button button-primary" href="/">Start trial</a>
+        </article>
+        <article class="plan">
+          <h3 class="plan-title">Team</h3>
+          <p class="plan-price"><span class="amount" data-monthly="$15" data-yearly="$12">$15</span><span class="period"> / month</span></p>
+          <p class="plan-body">Everything in Pro plus roles, audit log and SSO.</p>
+          <a class="button button-secondary" href="/features.html">See features</a>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <p class="footer-brand">Lumen</p>
+      <ul class="footer-links">
+        <li><a class="footer-link" href="/">Home</a></li>
+        <li><a class="footer-link" href="/features.html">Features</a></li>
+        <li><a class="footer-link" href="/pricing.html">Pricing</a></li>
+        <li><a class="footer-link" href="https://example.com/" rel="noopener">Status page</a></li>
+      </ul>
+      <p class="footer-copy">Fixture D for UI DNA. No real product.</p>
+    </div>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>

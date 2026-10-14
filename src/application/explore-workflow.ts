@@ -105,6 +105,7 @@ export async function exploreInteractions(
     scanId: input.scanId,
     policy: 'safe',
     coverage: outcome.record.coverage,
+    coverageByPage: outcome.record.coverageByPage ?? {},
     newStates: stateSummaries(dna.value).filter((s) => newStates.has(s.stateId)),
     transitions,
     skipped: outcome.record.skipped,

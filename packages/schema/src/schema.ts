@@ -13,7 +13,7 @@ import {
 } from './provenance.js';
 
 /** Current schema version. Documents carry it as `dnaVersion`. */
-export const UI_DNA_VERSION = '0.1.0';
+export const UI_DNA_VERSION = '0.2.0';
 
 const Id = z.string().min(1);
 const IsoDateTime = z.iso.datetime({ offset: true });
@@ -74,6 +74,19 @@ export const PageSchema = z.strictObject({
   url: z.string().min(1),
   title: attributed(z.string()),
   stateIds: z.array(Id),
+  /** Crawl depth from the seed page (0 for the page that was scanned first). */
+  depth: NonNegativeInt.optional(),
+  /** Navigation edge that led the crawl to this page, when it was not the seed. */
+  discoveredVia: Id.nullable().optional(),
+  /** Interactive elements found on the page's base states versus interactions attempted and changes observed. */
+  coverage: z
+    .strictObject({
+      discovered: NonNegativeInt,
+      explored: NonNegativeInt,
+      changed: NonNegativeInt,
+      skipped: NonNegativeInt,
+    })
+    .optional(),
 });
 export type Page = z.infer<typeof PageSchema>;
 
@@ -160,6 +173,10 @@ export const A11yPropsSchema = z.strictObject({
   haspopup: z.string().optional(),
   modal: z.boolean().optional(),
   controls: z.array(z.string()).optional(),
+  /** aria-invalid or the control's native validity when it was reported. */
+  invalid: z.boolean().optional(),
+  /** Text of the element referenced by aria-errormessage or aria-describedby when the control is invalid. */
+  errorMessage: z.string().optional(),
   /** Role tree position for replay locators: nth element with this role and name in the state. */
   nth: z.number().int().min(0).optional(),
 });
@@ -199,6 +216,20 @@ export const UiNodeSchema = z.strictObject({
     .strictObject({
       before: PseudoElementSchema.optional(),
       after: PseudoElementSchema.optional(),
+    })
+    .optional(),
+  /** Form-control facts for input, select, textarea and button elements. */
+  form: z
+    .strictObject({
+      /** Native constraint validity (`checkValidity()`), or null when the control has no validity state. */
+      valid: z.boolean().nullable(),
+      /** The browser's validation message when the control is invalid, or null. */
+      validationMessage: z.string().nullable(),
+      required: z.boolean(),
+      /** Control type (`email`, `password`, `checkbox`, `select-one`, ...), or null. */
+      type: z.string().nullable(),
+      /** Whether a value was present; values themselves are never stored for sensitive controls. */
+      hasValue: z.boolean(),
     })
     .optional(),
 });
@@ -258,9 +289,11 @@ export type ActionTarget = z.infer<typeof ActionTargetSchema>;
 
 /** An interaction performed by the explorer. */
 export const ActionSchema = z.strictObject({
-  type: z.enum(['click', 'hover', 'focus', 'key']),
+  type: z.enum(['click', 'hover', 'focus', 'key', 'fill', 'submit']),
   target: ActionTargetSchema.nullable(),
   key: z.string().optional(),
+  /** Synthetic value typed by a `fill` action (never user data). */
+  value: z.string().optional(),
 });
 export type Action = z.infer<typeof ActionSchema>;
 
@@ -284,6 +317,14 @@ export const TransitionSchema = z.strictObject({
     screenshotChanged: z.boolean(),
     changedNodeIds: z.array(Id),
   }),
+  /** Set when the action led to another page of the same origin; `to` is then a base state of that page. */
+  navigation: z
+    .strictObject({
+      toPageId: Id,
+      url: z.string().min(1),
+    })
+    .nullable()
+    .optional(),
   provenance: ObservedProvenanceSchema,
 });
 export type Transition = z.infer<typeof TransitionSchema>;
@@ -341,6 +382,8 @@ export const ComponentDefinitionSchema = z.strictObject({
   instanceCount: NonNegativeInt,
   /** Instances per state id. */
   matchesByState: z.record(z.string(), NonNegativeInt),
+  /** Pages on which the candidate appears (cross-page components span more than one). */
+  pageIds: z.array(Id).optional(),
   confidence: z.number().min(0).max(1),
   provenance: ProvenanceSchema,
 });
@@ -512,9 +555,11 @@ export type BehaviorEffect = z.infer<typeof BehaviorEffectSchema>;
 export const BehaviorRuleSchema = z.strictObject({
   id: Id,
   event: z.strictObject({
-    type: z.enum(['click', 'hover', 'focus', 'key']),
+    type: z.enum(['click', 'hover', 'focus', 'key', 'fill', 'submit']),
     target: ActionTargetSchema,
     key: z.string().optional(),
+    /** Synthetic value a `fill` event typed. */
+    value: z.string().optional(),
   }),
   transitionId: Id.nullable(),
   effects: z.array(BehaviorEffectSchema),
@@ -526,7 +571,8 @@ export type BehaviorRule = z.infer<typeof BehaviorRuleSchema>;
 
 export const AssetSchema = z.strictObject({
   id: Id,
-  kind: z.enum(['font', 'image', 'svg', 'video', 'icon', 'other']),
+  /** `data` is a captured JSON response (opt-in), stored redacted under `localPath`. */
+  kind: z.enum(['font', 'image', 'svg', 'video', 'icon', 'data', 'other']),
   url: z.string().min(1),
   origin: z.enum(['same-origin', 'cross-origin', 'inline', 'data']),
   mime: z.string().optional(),
@@ -536,6 +582,8 @@ export const AssetSchema = z.strictObject({
   height: NonNegativeInt.optional(),
   /** Local copy relative to the scan directory, when one was stored. */
   localPath: z.string().optional(),
+  /** For `data` assets: the request that produced the response (URL redacted). */
+  request: z.strictObject({ method: z.string().min(1), status: z.number().int().nullable(), mime: z.string().nullable() }).optional(),
   /** Authorization to reuse the asset. `unknown` by default; only the user or agent may set `authorized`. */
   authorization: z.enum(['unknown', 'authorized', 'unauthorized']),
   usage: z.array(z.strictObject({ stateId: Id, nodeId: Id, nodePath: NodePathSchema })),

@@ -47,6 +47,8 @@ export interface StaticServerOptions {
   readonly port?: number;
   /** Serve index.html for unknown paths without an extension (single-page apps). */
   readonly spaFallback?: boolean;
+  /** Answer `POST /api/*` with a JSON acknowledgement, as the fixture server does. */
+  readonly fixtureApi?: boolean;
 }
 
 /** Start serving `dir`. */
@@ -63,6 +65,18 @@ export async function serveStatic(dir: string, options: StaticServerOptions = {}
     void (async () => {
       try {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+        if (options.fixtureApi && req.method === 'POST' && url.pathname.startsWith('/api/')) {
+          let size = 0;
+          req.on('data', (chunk: Buffer) => {
+            size += chunk.length;
+          });
+          req.on('end', () => {
+            const body = JSON.stringify({ ok: true, received: size });
+            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(body) });
+            res.end(body);
+          });
+          return;
+        }
         let pathname = decodeURIComponent(url.pathname);
         if (pathname.endsWith('/')) pathname += 'index.html';
         let target = normalize(join(root, pathname));

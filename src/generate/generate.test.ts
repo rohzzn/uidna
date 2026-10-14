@@ -1,3 +1,4 @@
+import { UI_DNA_VERSION } from '@rohzzn/uidna-schema';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -113,7 +114,7 @@ describe('generateProject', () => {
   it('writes a manifest with components, placeholders, mocks and viewports and no timestamp', async () => {
     const manifest = JSON.parse(await read(outDir, MANIFEST_FILE)) as Record<string, unknown>;
     expect(manifest.scanId).toBe(FIXTURE_SCAN_ID);
-    expect(manifest.dnaVersion).toBe('0.1.0');
+    expect(manifest.dnaVersion).toBe(UI_DNA_VERSION);
     expect(manifest.components).toEqual([
       { name: 'Component01', file: 'src/components/Component01.tsx', definitionId: 'cmp_01' },
       { name: 'NavItem', file: 'src/components/NavItem.tsx', definitionId: 'cmp_02' },

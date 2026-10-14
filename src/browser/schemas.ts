@@ -17,7 +17,7 @@ export const CapturedFontSchema: z.ZodType<CapturedFont> = z.object({
 
 export const CapturedAssetSchema: z.ZodType<CapturedAsset> = z.object({
   id: z.string(),
-  kind: z.enum(['font', 'image', 'svg', 'video', 'icon', 'other']),
+  kind: z.enum(['font', 'image', 'svg', 'video', 'icon', 'data', 'other']),
   url: z.string(),
   origin: z.enum(['same-origin', 'cross-origin', 'inline', 'data']),
   mime: z.string().optional(),
@@ -27,6 +27,7 @@ export const CapturedAssetSchema: z.ZodType<CapturedAsset> = z.object({
   height: z.number().int().min(0).optional(),
   usedBy: z.array(z.string()),
   localPath: z.string().optional(),
+  request: z.object({ method: z.string(), status: z.number().int().nullable(), mime: z.string().nullable() }).optional(),
 });
 
 export const NetworkEntrySchema: z.ZodType<NetworkEntry> = z.object({

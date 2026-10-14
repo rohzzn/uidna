@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lumen — Create your account</title>
+  <meta name="description" content="Fixture C for UI DNA: a signup form with client-side validation and a list loaded from a JSON endpoint.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span><span>Lumen</span></a>
+  </header>
+
+  <main id="top" class="layout">
+    <section class="panel" aria-labelledby="signup-title">
+      <h1 class="panel-title" id="signup-title">Create your account</h1>
+      <p class="panel-lead">Free for one device. No credit card.</p>
+
+      <form id="signup" class="form" novalidate>
+        <div class="field">
+          <label class="label" for="name">Full name</label>
+          <input class="input" id="name" name="name" type="text" autocomplete="name" required aria-describedby="name-hint">
+          <p class="hint" id="name-hint">As you want it shown to collaborators.</p>
+          <p class="error" id="name-error" role="alert" hidden></p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="email">Email</label>
+          <input class="input" id="email" name="email" type="email" autocomplete="email" required>
+          <p class="error" id="email-error" role="alert" hidden></p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="password">Password</label>
+          <input class="input" id="password" name="password" type="password" autocomplete="new-password" minlength="8" required aria-describedby="password-hint">
+          <p class="hint" id="password-hint">At least 8 characters.</p>
+          <p class="error" id="password-error" role="alert" hidden></p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="plan">Plan</label>
+          <select class="input" id="plan" name="plan">
+            <option value="free">Free</option>
+            <option value="pro">Pro</option>
+          </select>
+        </div>
+
+        <div class="field field-check">
+          <input class="checkbox" id="terms" name="terms" type="checkbox" required>
+          <label class="label-inline" for="terms">I agree to the terms</label>
+          <p class="error" id="terms-error" role="alert" hidden></p>
+        </div>
+
+        <div class="actions">
+          <button class="button button-primary" type="submit">Create account</button>
+          <button class="button button-secondary" type="button" id="fill-example">Fill example</button>
+        </div>
+        <p class="status" id="status" role="status" hidden></p>
+      </form>
+    </section>
+
+    <aside class="panel panel-muted" aria-labelledby="notes-title">
+      <h2 class="panel-title" id="notes-title">Latest notes</h2>
+      <p class="panel-lead">Loaded from the notes endpoint.</p>
+      <ul class="notes" id="notes" aria-live="polite"></ul>
+      <button class="button button-secondary" type="button" id="reload-notes">Reload notes</button>
+    </aside>
+  </main>
+
+  <footer class="site-footer">
+    <p class="footer-copy">Fixture C for UI DNA. No real product.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "items": [
+    { "id": 1, "title": "Reading list for the weekend", "updated": "Today", "links": 4 },
+    { "id": 2, "title": "Interview notes: onboarding flow", "updated": "Yesterday", "links": 7 },
+    { "id": 3, "title": "Ideas for the Q4 roadmap", "updated": "3 days ago", "links": 2 }
+  ],
+  "total": 3
+}

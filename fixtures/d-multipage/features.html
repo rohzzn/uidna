@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lumen — Features</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar" aria-label="Primary">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">Lumen</span></a>
+      <ul class="nav-menu">
+        <li><a class="nav-link" href="/">Home</a></li>
+        <li><a class="nav-link" href="/features.html" aria-current="page">Features</a></li>
+        <li><a class="nav-link" href="/pricing.html">Pricing</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section class="page-intro" aria-labelledby="features-title">
+      <h1 class="page-title" id="features-title">Everything in one place</h1>
+      <p class="page-lead">Pick a workflow to see how Lumen fits it.</p>
+    </section>
+
+    <section class="tabs-section" aria-labelledby="tabs-title">
+      <h2 class="section-title" id="tabs-title">Workflows</h2>
+      <div class="tabs">
+        <div class="tablist" role="tablist" aria-label="Workflows">
+          <button class="tab" role="tab" type="button" id="tab-write" aria-selected="true" aria-controls="panel-write">Write</button>
+          <button class="tab" role="tab" type="button" id="tab-link" aria-selected="false" aria-controls="panel-link" tabindex="-1">Link</button>
+          <button class="tab" role="tab" type="button" id="tab-review" aria-selected="false" aria-controls="panel-review" tabindex="-1">Review</button>
+        </div>
+        <div class="tabpanel" role="tabpanel" id="panel-write" aria-labelledby="tab-write">
+          <h3 class="panel-heading">Write without friction</h3>
+          <p class="panel-text">A blank page in one keystroke. Markdown when you want it, plain text when you do not.</p>
+        </div>
+        <div class="tabpanel" role="tabpanel" id="panel-link" aria-labelledby="tab-link" hidden>
+          <h3 class="panel-heading">Link as you think</h3>
+          <p class="panel-text">Type two brackets and a note is linked. Backlinks appear on both sides.</p>
+        </div>
+        <div class="tabpanel" role="tabpanel" id="panel-review" aria-labelledby="tab-review" hidden>
+          <h3 class="panel-heading">Review on your schedule</h3>
+          <p class="panel-text">A daily digest shows the notes that are due for another look.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta" aria-labelledby="cta-title">
+      <h2 class="section-title" id="cta-title">Ready when you are</h2>
+      <a class="button button-primary" href="/pricing.html">Compare plans</a>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <p class="footer-brand">Lumen</p>
+      <ul class="footer-links">
+        <li><a class="footer-link" href="/">Home</a></li>
+        <li><a class="footer-link" href="/features.html">Features</a></li>
+        <li><a class="footer-link" href="/pricing.html">Pricing</a></li>
+        <li><a class="footer-link" href="https://example.com/" rel="noopener">Status page</a></li>
+      </ul>
+      <p class="footer-copy">Fixture D for UI DNA. No real product.</p>
+    </div>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>

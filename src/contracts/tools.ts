@@ -73,8 +73,27 @@ export function validateTarget(input: { url?: string | undefined; cdpEndpoint?: 
 
 /* ----------------------------------------------------------- shared outputs */
 
+export const PageSummarySchema = z.strictObject({
+  pageId: z.string(),
+  url: z.string(),
+  title: z.string(),
+  depth: z.number().int().min(0),
+  discoveredVia: z.string().nullable(),
+  stateIds: z.array(z.string()),
+});
+export type PageSummary = z.infer<typeof PageSummarySchema>;
+
+export const CrawlInputSchema = z
+  .object({
+    maxPages: z.number().int().min(1).max(50).optional().describe('Pages to visit including the seed. Default 1 (no crawl). Bounded by the pages budget.'),
+    include: z.array(z.string()).optional().describe('Only follow same-origin links whose path starts with one of these prefixes.'),
+    exclude: z.array(z.string()).optional().describe('Never follow same-origin links whose path starts with one of these prefixes.'),
+  })
+  .describe('Breadth-first crawl of same-origin links discovered on captured pages. Cross-origin links are recorded, never followed.');
+
 export const StateSummarySchema = z.strictObject({
   stateId: z.string(),
+  pageId: z.string(),
   kind: z.enum(['base', 'derived']),
   parentStateId: z.string().nullable(),
   viewport: ViewportSchema,
@@ -129,12 +148,15 @@ export const scanInterface = defineTool({
     viewports: ViewportWidthsSchema.optional(),
     budget: BudgetInputSchema.optional(),
     headless: z.boolean().optional().describe('Launch mode only. Default true.'),
+    crawl: CrawlInputSchema.optional(),
+    captureBodies: z.enum(['none', 'json']).optional().describe('Store JSON response bodies of XHR/fetch requests as data assets (redacted, size-capped). Default none.'),
     outRoot: z.string().optional().describe('Directory that holds scans. Default ./.uidna'),
   }),
   output: z.strictObject({
     scanId: z.string(),
     scanDir: z.string(),
     target: z.strictObject({ kind: z.enum(['url', 'cdp']), url: z.string() }),
+    pages: z.array(PageSummarySchema),
     states: z.array(StateSummarySchema),
     assets: z.strictObject({
       count: z.number().int().min(0),
@@ -157,21 +179,27 @@ export const exploreInteractions = defineTool({
   shape: 'capture',
   input: z.object({
     scanId: ScanIdSchema,
-    policy: z.literal('safe').optional().describe('Only "safe" exists in Phase 1.'),
+    policy: z
+      .enum(['safe', 'forms'])
+      .optional()
+      .describe('"safe" (default) never touches forms. "forms" additionally fills same-origin form controls with synthetic values and submits to observe client-side validation; the submission request itself is blocked and recorded as a side effect.'),
     budget: BudgetInputSchema.optional(),
     viewports: ViewportWidthsSchema.optional().describe('Subset of the scanned viewports to explore. Default all.'),
+    pages: z.array(z.string()).optional().describe('Subset of page ids to explore. Default all.'),
     denyNames: z.array(z.string()).optional().describe('Additional accessible-name words that must never be clicked.'),
+    formValues: z.record(z.string(), z.string()).optional().describe('Synthetic values per control name or id for the forms policy. Never real credentials.'),
     outRoot: z.string().optional(),
   }),
   output: z.strictObject({
     scanId: z.string(),
-    policy: z.literal('safe'),
+    policy: z.enum(['safe', 'forms']),
     coverage: z.strictObject({
       discovered: z.number().int().min(0).describe('Interactive elements found in the base states.'),
-      explored: z.number().int().min(0).describe('Interactions performed.'),
+      explored: z.number().int().min(0).describe('Interactions attempted (including ones the browser refused; see explore.json).'),
       changed: z.number().int().min(0).describe('Interactions that produced a new state.'),
       skipped: z.number().int().min(0),
     }),
+    coverageByPage: z.record(z.string(), z.strictObject({ discovered: z.number().int().min(0), explored: z.number().int().min(0), changed: z.number().int().min(0), skipped: z.number().int().min(0) })),
     newStates: z.array(StateSummarySchema),
     transitions: z.array(TransitionSummarySchema),
     skipped: z.array(SkippedInteractionSchema),
@@ -408,6 +436,8 @@ export const generateProject = defineTool({
   input: z.object({
     scanId: ScanIdSchema,
     outDir: z.string().describe('Directory for the generated project. Created if missing; existing generated files are overwritten, other files are kept.'),
+    router: z.enum(['none', 'react-router']).optional().describe('How pages are wired: "react-router" (default when the document has more than one page) or "none".'),
+    behaviorTests: z.boolean().optional().describe('Also write Playwright tests that replay every recorded transition against the generated app. Default true.'),
     install: z.boolean().optional().describe('Run npm install. Default true.'),
     build: z.boolean().optional().describe('Run the production build after install. Default true.'),
     outRoot: z.string().optional(),
@@ -447,6 +477,7 @@ export const verifyReconstruction = defineTool({
       .optional(),
     label: z.string().optional().describe('Free-text label for this attempt, e.g. "after fixing hero spacing".'),
     build: z.boolean().optional().describe('Rebuild the project before verifying. Default true.'),
+    runGeneratedTests: z.boolean().optional().describe('Also run the generated Playwright behavior tests and report their outcome. Default false.'),
     outRoot: z.string().optional(),
   }),
   output: DiffReportSchema,
@@ -512,7 +543,10 @@ export const reconstructInterface = defineTool({
     outDir: z.string().describe('Directory for the generated project.'),
     viewports: ViewportWidthsSchema.optional(),
     budget: BudgetInputSchema.optional(),
-    explore: z.boolean().optional().describe('Run safe exploration. Default true.'),
+    crawl: CrawlInputSchema.optional(),
+    captureBodies: z.enum(['none', 'json']).optional(),
+    policy: z.enum(['safe', 'forms']).optional().describe('Exploration policy. Default safe.'),
+    explore: z.boolean().optional().describe('Run exploration. Default true.'),
     install: z.boolean().optional().describe('Run npm install in the generated project. Default true.'),
     headless: z.boolean().optional(),
     outRoot: z.string().optional(),

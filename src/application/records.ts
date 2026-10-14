@@ -24,6 +24,8 @@ export type ScanStatus = z.infer<typeof ScanStatusSchema>;
 
 export const StateRecordSchema = z.strictObject({
   stateId: z.string(),
+  /** Page the state belongs to; absent in scans written before multi-page crawls (then the scan's single page). */
+  pageId: z.string().optional(),
   kind: z.enum(['base', 'derived']),
   parentStateId: z.string().nullable(),
   viewport: ViewportSchema,
@@ -69,7 +71,21 @@ export const ScanRecordSchema = z.strictObject({
   }),
   browser: z.strictObject({ mode: z.enum(['launch', 'cdp']), name: z.string(), version: z.string().nullable() }),
   viewports: z.array(ViewportSchema).min(1),
+  /** The seed page's id. */
   pageId: z.string(),
+  /** Every crawled page, seed first. Absent in scans written before multi-page crawls. */
+  pages: z
+    .array(
+      z.strictObject({
+        pageId: z.string(),
+        url: z.string(),
+        depth: z.number().int().min(0),
+        /** Navigation edge id (in dna.json) that led to the page, null for the seed. */
+        discoveredVia: z.string().nullable(),
+        title: z.string(),
+      }),
+    )
+    .optional(),
   status: ScanStatusSchema,
   budget: BudgetRecordSchema,
   states: z.array(StateRecordSchema),
@@ -108,7 +124,7 @@ export type AttemptedInteraction = z.infer<typeof AttemptedInteractionSchema>;
 
 export const ExploreRecordSchema = z.strictObject({
   scanId: z.string(),
-  policy: z.literal('safe'),
+  policy: z.enum(['safe', 'forms']),
   startedAt: z.string(),
   finishedAt: z.string(),
   evidenceId: z.string(),
@@ -119,6 +135,18 @@ export const ExploreRecordSchema = z.strictObject({
     changed: z.number().int().min(0),
     skipped: z.number().int().min(0),
   }),
+  /** Coverage per page id; absent for records written before multi-page crawls. */
+  coverageByPage: z
+    .record(
+      z.string(),
+      z.strictObject({
+        discovered: z.number().int().min(0),
+        explored: z.number().int().min(0),
+        changed: z.number().int().min(0),
+        skipped: z.number().int().min(0),
+      }),
+    )
+    .optional(),
   attempted: z.array(AttemptedInteractionSchema),
   skipped: z.array(SkippedRecordSchema),
   /** Transition ids live in dna.json; this lists them for quick lookup. */

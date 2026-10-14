@@ -5,6 +5,21 @@ All notable changes to `@rohzzn/uidna-schema` are documented here. The format fo
 follows semantic versioning. `dnaVersion` inside a document tracks this
 package's version.
 
+## [0.2.0] - 2026-10-14
+
+### Added (all optional; 0.1.0 documents stay valid)
+
+- `app.pages[]`: `depth`, `discoveredVia` and `coverage` for multi-page crawls and
+  explored-versus-discovered counts per page.
+- `states.transitions[].navigation`: set when a same-origin link led to another page.
+- `Action.type` gains `fill` and `submit`; `Action.value` carries the synthetic value a
+  `fill` action typed.
+- `UiNode.form`: native validity, validation message, required flag, control type and
+  whether a value was present, for form controls. `A11yProps.invalid` and
+  `A11yProps.errorMessage`.
+- `Asset.kind` gains `data` for opt-in captured JSON responses, with `Asset.request`.
+- `ComponentDefinition.pageIds` for candidates that span pages.
+
 ## [0.1.0] - 2026-10-13
 
 ### Added

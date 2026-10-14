@@ -31,6 +31,7 @@ export async function loadScanAndDna(ctx: WorkflowContext, scanId: string): Prom
 export function stateSummaries(dna: UiDnaDocument): StateSummary[] {
   return dna.states.items.map((s) => ({
     stateId: s.id,
+    pageId: s.pageId,
     kind: s.kind,
     parentStateId: s.parentStateId,
     viewport: s.viewport,
