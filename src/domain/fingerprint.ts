@@ -5,7 +5,7 @@
  * names are deliberately excluded so that three cards with different copy
  * match, while a card and a hero section do not.
  */
-import type { UiNode } from '@uidna/schema';
+import type { UiNode } from '@rohzzn/uidna-schema';
 import type { CapturedState } from '../browser/types.js';
 import { parsePx } from './clustering.js';
 import { parseCssColor, isTransparent } from './color.js';

@@ -6,7 +6,7 @@ to interaction, and what could not be observed. It is produced by `uidna scan` a
 `uidna explore`, refined by the host agent through `annotate_dna`, and consumed by the
 generator, the verifier and any other tool that wants it.
 
-The schema is published as [`@uidna/schema`](../packages/schema) (Zod, JSON Schema and
+The schema is published as [`@rohzzn/uidna-schema`](../packages/schema) (Zod, JSON Schema and
 TypeScript types) and versioned with `dnaVersion`. It is framework neutral: nothing in
 it mentions React, Tailwind or any other output framework.
 

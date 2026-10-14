@@ -4,7 +4,7 @@
  * normalizes them to the ARIA role names Playwright's `getByRole` resolves,
  * so a role recorded in a capture can be replayed as a locator.
  */
-import type { A11yProps } from '@uidna/schema';
+import type { A11yProps } from '@rohzzn/uidna-schema';
 import type { AxNodeData } from './cdp-schemas.js';
 
 /**

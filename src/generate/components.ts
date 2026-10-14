@@ -3,7 +3,7 @@
  * components, what their props are (declared props plus every text or
  * attribute that differs between instances) and which style variants exist.
  */
-import type { ComponentDefinition, UiDnaDocument } from '@uidna/schema';
+import type { ComponentDefinition, UiDnaDocument } from '@rohzzn/uidna-schema';
 import type { AssetRegistry } from './assets.js';
 import { keptAttributes } from './attrs.js';
 import { camelCase, compareStrings, pascalCase } from './jsx.js';

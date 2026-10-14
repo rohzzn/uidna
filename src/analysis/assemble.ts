@@ -22,8 +22,8 @@ import type {
   UiDnaDocument,
   UiNode,
   UiState,
-} from '@uidna/schema';
-import { formatIssues, LimitationSchema, measured, UI_DNA_VERSION, validateUiDna } from '@uidna/schema';
+} from '@rohzzn/uidna-schema';
+import { formatIssues, LimitationSchema, measured, UI_DNA_VERSION, validateUiDna } from '@rohzzn/uidna-schema';
 import type { CapturedAsset, CapturedState } from '../browser/types.js';
 import type { ScanRecord, StateRecord } from '../application/records.js';
 import { isoNow, systemClock, type Clock } from '../domain/clock.js';

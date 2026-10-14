@@ -3,7 +3,7 @@
  * attempts, summary counts, and the lookups that attribute a finding to a
  * component instance or a token of the UI DNA document.
  */
-import type { Token, UiDnaDocument, UiNode } from '@uidna/schema';
+import type { Token, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
 import { FINDING_CATEGORIES, FINDING_SEVERITIES, type DiffReport, type Finding, type FindingCategory, type FindingSeverity } from '../contracts/diff-report.js';
 import { COLOR_PROPERTIES } from './styles.js';
 

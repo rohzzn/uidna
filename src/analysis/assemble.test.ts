@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatIssues, validateUiDna, type Transition, type UiDnaDocument } from '@uidna/schema';
+import { formatIssues, validateUiDna, type Transition, type UiDnaDocument } from '@rohzzn/uidna-schema';
 import type { CapturedState } from '../browser/types.js';
 import { fixedClock } from '../domain/clock.js';
 import { assembleDna } from './assemble.js';

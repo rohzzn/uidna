@@ -5,7 +5,7 @@
 import { mkdir, readFile, readdir, stat, writeFile, appendFile, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { z } from 'zod';
-import { parseUiDna, formatIssues, isCompatibleVersion, validateUiDna, type UiDnaDocument } from '@uidna/schema';
+import { parseUiDna, formatIssues, isCompatibleVersion, validateUiDna, type UiDnaDocument } from '@rohzzn/uidna-schema';
 import { CapturedStateSchema } from '../browser/schemas.js';
 import type { CapturedState } from '../browser/types.js';
 import { DiffReportSchema, type DiffReport } from '../contracts/diff-report.js';

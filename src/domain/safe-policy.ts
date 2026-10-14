@@ -5,7 +5,7 @@
  * or carry a denied name) and reports every exclusion with its reason, one
  * entry per node and excluded kind, so nothing is skipped silently.
  */
-import type { UiNode } from '@uidna/schema';
+import type { UiNode } from '@rohzzn/uidna-schema';
 import type { CapturedState, NetworkEntry } from '../browser/types.js';
 
 /** Interaction kinds the policy decides about. */

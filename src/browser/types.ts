@@ -4,7 +4,7 @@
  * over CDP (authorized authenticated sessions). Everything above the browser
  * layer (explore, verify, workflows) programs against these types only.
  */
-import type { RoleTreeNode, UiNode, Viewport } from '@uidna/schema';
+import type { RoleTreeNode, UiNode, Viewport } from '@rohzzn/uidna-schema';
 import type { Result } from '../domain/result.js';
 
 export type { Viewport, UiNode, RoleTreeNode };

@@ -12,7 +12,7 @@
  * Boxes are page coordinates (document space, scroll offsets included).
  */
 import type { CDPSession, Page } from 'playwright';
-import type { Box } from '@uidna/schema';
+import type { Box } from '@rohzzn/uidna-schema';
 import { toError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { DomGetDocumentResultSchema, DomSnapshotResultSchema, StyleFillResultSchema, WalkedTreeSchema, type DomNodeData } from './cdp-schemas.js';

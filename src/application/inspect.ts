@@ -3,7 +3,7 @@
  * `inspect_element`, `search_components`, `extract_tokens`. They never touch
  * a browser; everything comes from `dna.json` and the scan record.
  */
-import type { Token, TokenCluster, UiDnaDocument, UiNode, UiState } from '@uidna/schema';
+import type { Token, TokenCluster, UiDnaDocument, UiNode, UiState } from '@rohzzn/uidna-schema';
 import { DNA_FACETS } from '../contracts/tools.js';
 import type { ToolInput, ToolOutput } from '../contracts/types.js';
 import type { extractTokens as extractTokensContract, inspectDna as inspectDnaContract, inspectElement as inspectElementContract, searchComponents as searchComponentsContract, StateSummary } from '../contracts/tools.js';

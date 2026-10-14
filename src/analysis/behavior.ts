@@ -8,7 +8,7 @@
  * says so, and a text change (which has no effect kind of its own) is an
  * `unknown` effect carrying the measured values.
  */
-import type { ActionTarget, BehaviorEffect, BehaviorRule, ObservedProvenance, Transition, UiNode, UiState } from '@uidna/schema';
+import type { ActionTarget, BehaviorEffect, BehaviorRule, ObservedProvenance, Transition, UiNode, UiState } from '@rohzzn/uidna-schema';
 import { stableStringify } from '../domain/digest.js';
 import { sequentialId } from '../domain/ids.js';
 import { comparePaths } from './common.js';

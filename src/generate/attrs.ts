@@ -3,7 +3,7 @@
  * never copied (every element gets utilities derived from its computed
  * style), `src` is handled by the asset registry and URLs are sanitized.
  */
-import type { UiNode } from '@uidna/schema';
+import type { UiNode } from '@rohzzn/uidna-schema';
 import { safeUrl } from './jsx.js';
 
 /** Attributes kept on every element. */

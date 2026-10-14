@@ -3,7 +3,7 @@
  * read from disk so a corrupt or hand-edited capture never reaches analysis.
  */
 import { z } from 'zod';
-import { RoleTreeNodeSchema, UiNodeSchema, ViewportSchema } from '@uidna/schema';
+import { RoleTreeNodeSchema, UiNodeSchema, ViewportSchema } from '@rohzzn/uidna-schema';
 import type { CapturedAsset, CapturedFont, CapturedState, NetworkEntry, ScreenshotFile } from './types.js';
 
 export const CapturedFontSchema: z.ZodType<CapturedFont> = z.object({

@@ -5,7 +5,7 @@
  * `open`, and hover/focus transitions become `hover:`/`focus:` variants on
  * the target. Everything that cannot be reproduced is reported with a reason.
  */
-import type { Transition, UiNode, UiState } from '@uidna/schema';
+import type { Transition, UiNode, UiState } from '@rohzzn/uidna-schema';
 import { stableStringify } from '../domain/digest.js';
 import { keptAttributes } from './attrs.js';
 import { comparePaths } from './components.js';

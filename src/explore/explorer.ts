@@ -10,7 +10,7 @@
  */
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Action, ActionTarget, Transition, UiNode } from '@uidna/schema';
+import type { Action, ActionTarget, Transition, UiNode } from '@rohzzn/uidna-schema';
 import type { WorkflowContext } from '../application/context.js';
 import type { AttemptedInteraction, ExploreRecord, ScanRecord, SkippedRecord, StateRecord } from '../application/records.js';
 import { openSession, relativizeCapture } from '../application/scan.js';

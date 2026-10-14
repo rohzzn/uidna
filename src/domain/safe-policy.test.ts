@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { UiNode } from '@uidna/schema';
+import type { UiNode } from '@rohzzn/uidna-schema';
 import { buildFixtureACapture, findNode, findNodes } from '../analysis/testing.js';
 import type { CapturedState, NetworkEntry } from '../browser/types.js';
 import {

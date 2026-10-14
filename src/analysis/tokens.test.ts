@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TokensSchema } from '@uidna/schema';
+import { TokensSchema } from '@rohzzn/uidna-schema';
 import type { CapturedState } from '../browser/types.js';
 import { buildFixtureACaptures, FIXTURE_A_CAPTURED_AT, FIXTURE_A_COLORS, FIXTURE_A_SHADOW, findNode } from './testing.js';
 import { extractTokens } from './tokens.js';

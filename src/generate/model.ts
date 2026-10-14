@@ -2,7 +2,7 @@
  * The generation model: which states are rendered, how viewports map to
  * Tailwind breakpoints, and the node tree matched across viewports by path.
  */
-import type { UiDnaDocument, UiNode, UiState } from '@uidna/schema';
+import type { UiDnaDocument, UiNode, UiState } from '@rohzzn/uidna-schema';
 import { uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { compareStrings } from './jsx.js';

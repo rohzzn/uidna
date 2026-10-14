@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BehaviorRuleSchema, type Transition, type UiState } from '@uidna/schema';
+import { BehaviorRuleSchema, type Transition, type UiState } from '@rohzzn/uidna-schema';
 import type { CapturedState } from '../browser/types.js';
 import { deriveBehavior } from './behavior.js';
 import { buildFixtureACapture, findNode } from './testing.js';

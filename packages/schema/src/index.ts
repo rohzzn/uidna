@@ -1,5 +1,5 @@
 /**
- * @uidna/schema — the UI DNA document schema.
+ * @rohzzn/uidna-schema — the UI DNA document schema.
  *
  * A UI DNA document describes a user interface down to the token, the
  * component and the state transition, with provenance on every value.

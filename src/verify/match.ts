@@ -6,7 +6,7 @@
  * name and position; tag and own text for text nodes. Missing nodes are
  * collapsed to subtree roots so one finding covers one lost subtree.
  */
-import type { Box, UiNode } from '@uidna/schema';
+import type { Box, UiNode } from '@rohzzn/uidna-schema';
 import { renderKindOf } from '../generate/model.js';
 
 /** Anything that carries captured nodes (`CapturedState`, `UiState`). */

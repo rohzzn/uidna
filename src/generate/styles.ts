@@ -9,7 +9,7 @@
  * (empty boxes, replaced elements, positioned elements, boxes larger than
  * their children). Everything else is emitted as captured.
  */
-import type { UiNode, UiState } from '@uidna/schema';
+import type { UiNode, UiState } from '@rohzzn/uidna-schema';
 import { RENDERING_STYLE_PROPERTIES, STYLE_DEFAULTS } from '../browser/style-properties.js';
 import type { GenNode, GenerationModel, ViewportSlot } from './model.js';
 import {

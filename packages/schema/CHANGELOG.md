@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `@uidna/schema` are documented here. The format follows
+All notable changes to `@rohzzn/uidna-schema` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the package
 follows semantic versioning. `dnaVersion` inside a document tracks this
 package's version.
@@ -17,5 +17,5 @@ package's version.
   `behavior`, `assets`, `limitations`, `evidence`, `annotations` (the log of
   agent patches applied through `annotate_dna`).
 - `validateUiDna`, `parseUiDna`, `isUiDna` helpers and a generated JSON Schema
-  at `@uidna/schema/ui-dna.schema.json`.
+  at `@rohzzn/uidna-schema/ui-dna.schema.json`.
 - Complete example document built from Fixture A (`fixtures/a-marketing`).

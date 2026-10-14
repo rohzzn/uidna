@@ -5,8 +5,8 @@
  * Nothing here infers: the provenance of every token is `measured` from
  * computed styles, except breakpoints which are `observed` from bounding boxes.
  */
-import type { ProvenanceContext, Token, Tokens, TypographyStyle, UiNode } from '@uidna/schema';
-import { measured, observed } from '@uidna/schema';
+import type { ProvenanceContext, Token, Tokens, TypographyStyle, UiNode } from '@rohzzn/uidna-schema';
+import { measured, observed } from '@rohzzn/uidna-schema';
 import type { CapturedState } from '../browser/types.js';
 import { clusterSamples, compareValues, parsePx, type Cluster, type Sample } from '../domain/clustering.js';
 import { colorDistance, formatCssColor, isTransparent, parseCssColor, type RgbaColor } from '../domain/color.js';

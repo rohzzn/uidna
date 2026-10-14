@@ -15,7 +15,7 @@ import {
   UiDnaDocumentStructureSchema,
   UiNodeSchema,
   ViewportSchema,
-} from '@uidna/schema';
+} from '@rohzzn/uidna-schema';
 import { DiffReportSchema, FindingSchema } from './diff-report.js';
 import { defineTool } from './types.js';
 

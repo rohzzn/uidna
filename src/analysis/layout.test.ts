@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LayoutConstraintSchema } from '@uidna/schema';
+import { LayoutConstraintSchema } from '@rohzzn/uidna-schema';
 import { computeLayout } from './layout.js';
 import { buildFixtureACaptures, findNode } from './testing.js';
 

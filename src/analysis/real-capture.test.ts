@@ -9,7 +9,7 @@
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ComponentsSchema, formatIssues, LayoutConstraintSchema, TokensSchema, validateUiDna } from '@uidna/schema';
+import { ComponentsSchema, formatIssues, LayoutConstraintSchema, TokensSchema, validateUiDna } from '@rohzzn/uidna-schema';
 import type { StaticServer } from '../application/static-server.js';
 import { PlaywrightSession } from '../browser/session.js';
 import { DESKTOP, makeTempDir, PHONE, serveFixtureA, type TempDir } from '../browser/test-helpers.js';

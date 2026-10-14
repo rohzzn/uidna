@@ -42,7 +42,7 @@ browser sessions and synthetic pages rather than by the fixture loop.
   component candidates from structural fingerprints with match counts, instances, varying
   props, variants and a confidence derived from agreement, never from a guess.
 - **UI DNA document.** A validated, framework-neutral document
-  ([`@uidna/schema`](packages/schema), [reference](docs/ui-dna.md)) where every value
+  ([`@rohzzn/uidna-schema`](packages/schema), [reference](docs/ui-dna.md)) where every value
   carries provenance: `measured`, `observed`, `inferred` (agent only) or `unknown` with a
   reason.
 - **Generation.** A deterministic React + TypeScript + Tailwind + Vite baseline: semantic
@@ -184,7 +184,7 @@ only reads the page and performs the same safe interactions.
 ## Repository
 
 ```text
-packages/schema/   @uidna/schema: Zod schema, JSON Schema, types, changelog
+packages/schema/   @rohzzn/uidna-schema: Zod schema, JSON Schema, types, changelog
 src/domain/        fingerprints, clustering, colors, safe-action policy, Result, budgets
 src/contracts/     tool contracts and the canonical catalog (docs/tools.md is generated)
 src/browser/       Playwright launch + CDP attach adapters, capture, robots, redaction

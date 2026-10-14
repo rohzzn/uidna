@@ -4,7 +4,7 @@
  */
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Transition } from '@uidna/schema';
+import type { Transition } from '@rohzzn/uidna-schema';
 import { assembleDna } from '../analysis/index.js';
 import { redactUrl } from '../browser/redact.js';
 import type { BrowserSession, CapturedState } from '../browser/types.js';
