@@ -194,6 +194,36 @@ height, an interaction skipped by policy), `not-accessible` (an iframe that was 
 entered), `not-reconstructable` (inline SVG markup, a cross-origin asset). Each has a
 reason and, when it applies, the state and node it concerns.
 
+## Pages, crawls and navigation (0.2.0)
+
+A scan may crawl same-origin links breadth-first. Each crawled page is an `app.pages[]`
+entry with its `depth` from the seed and `discoveredVia`, the navigation edge that led
+there; its base states carry the page's `pageId`. Navigation edges to crawled pages have
+`followed: true` and a `pageId`; cross-origin edges are recorded with `sameOrigin: false`
+and never followed. A transition whose click led to another crawled page carries
+`navigation: { toPageId, url }` and points at a base state of that page. Pages share a
+`SharedLayout` when their landmark regions agree structurally, and a component
+candidate that appears on several pages lists them in `pageIds`. Per-page
+`coverage` records how many interactive elements were discovered, how many
+interactions were attempted, how many changed the page and how many were skipped.
+
+## Forms (0.2.0)
+
+Form controls carry `form` facts: native validity, the browser's validation message when
+invalid, `required`, the control type and whether a value was present. Values of
+sensitive controls are never stored, and the explorer only ever types synthetic values.
+With the `forms` exploration policy, `fill` actions (with the synthetic `value`) and
+`submit` actions produce derived states that show client-side validation; the submission
+request itself is blocked and the transition is marked `sideEffects: true`.
+`A11yProps.invalid` and `errorMessage` expose the accessibility view of the same facts.
+
+## Data assets (0.2.0)
+
+When a scan opts into `captureBodies: "json"`, JSON responses of XHR and fetch requests
+become assets of kind `data`: a redacted copy under `localPath`, the `request` that
+produced them and `measured` / `network` provenance. Generators turn them into typed,
+labeled mocks; no backend is ever implied.
+
 ## Versioning
 
 `dnaVersion` follows semver. Readers accept documents of the same major version.

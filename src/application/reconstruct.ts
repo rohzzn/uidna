@@ -61,6 +61,8 @@ export async function reconstructInterface(
     ...(input.viewports === undefined ? {} : { viewports: input.viewports }),
     ...(input.budget === undefined ? {} : { budget: input.budget }),
     ...(input.headless === undefined ? {} : { headless: input.headless }),
+    ...(input.crawl === undefined ? {} : { crawl: input.crawl }),
+    ...(input.captureBodies === undefined ? {} : { captureBodies: input.captureBodies }),
   });
   const scanOk = record('scan', since, scanned);
   if (!scanned.ok) {
@@ -81,8 +83,8 @@ export async function reconstructInterface(
   // 2. explore
   if (scanOk && (input.explore ?? true)) {
     since = started();
-    ctx.progress.report({ message: 'reconstruct: explore (safe)', current: 2, total: 6 });
-    const explored = await exploreInteractions(ctx, { scanId, policy: 'safe', ...(input.budget === undefined ? {} : { budget: input.budget }) });
+    ctx.progress.report({ message: `reconstruct: explore (${input.policy ?? 'safe'})`, current: 2, total: 6 });
+    const explored = await exploreInteractions(ctx, { scanId, policy: input.policy ?? 'safe', ...(input.budget === undefined ? {} : { budget: input.budget }) });
     if (record('explore', since, explored) && explored.ok) dnaPath = explored.value.result.dnaPath;
   } else if (scanOk) {
     steps.push({ name: 'explore', ok: true, durationMs: 0, evidenceId: null, error: null });
