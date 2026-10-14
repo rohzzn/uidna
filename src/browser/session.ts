@@ -141,6 +141,9 @@ export function isLocalHost(hostname: string): boolean {
 }
 
 /** Playwright-backed `BrowserSession`. Create through `createPlaywrightProvider()`. */
+/** How long `act()` waits for the popup report of a page whose request the guard already saw. */
+const POPUP_REPORT_TIMEOUT_MS = 2000;
+
 export class PlaywrightSession implements BrowserSession {
   readonly id: string = newSessionId();
   readonly mode: BrowserMode;
@@ -297,6 +300,10 @@ export class PlaywrightSession implements BrowserSession {
     let blockedDetail = '';
     const blockedRequests: string[] = [];
     let popups = 0;
+    // A popup's first request reaches the guard before Playwright reports the popup; under load the report can
+    // arrive after the settle window, so a seen request makes `act()` wait for it.
+    let otherPageRequests = 0;
+    const popupSeen = deferred();
     const nav: { commit: Deferred | null } = { commit: null };
     const onNavigated = (frame: Frame): void => {
       if (frame !== this.page.mainFrame()) return;
@@ -305,6 +312,7 @@ export class PlaywrightSession implements BrowserSession {
     };
     const onPopup = (popup: Page): void => {
       popups += 1;
+      popupSeen.resolve();
       popup.close().catch(() => undefined);
     };
     const abort = async (route: Route): Promise<void> => {
@@ -323,6 +331,7 @@ export class PlaywrightSession implements BrowserSession {
       // robots.txt allows (a POST form submission is never followed, whatever the origin); other pages (popups) are
       // blocked only cross-origin and closed either way.
       let navigationBlock: string | null = null;
+      if (target === 'other-page') otherPageRequests += 1;
       if (target === 'session') {
         if (!(followSameOrigin && sameOrigin && !nonGet)) {
           navigationBlock = BLOCKED_NAVIGATION_FAILURE;
@@ -369,6 +378,7 @@ export class PlaywrightSession implements BrowserSession {
       routed = true;
       const performed = await this.perform(action);
       await this.page.waitForTimeout(100);
+      if (otherPageRequests > 0 && popups === 0) await Promise.race([popupSeen.promise, sleep(POPUP_REPORT_TIMEOUT_MS)]);
       if (nav.commit !== null) await Promise.race([nav.commit.promise, sleep(NAVIGATION_COMMIT_TIMEOUT_MS)]);
       if (blockNonGet) await this.settleRequests(networkMarker);
       if (navigated || this.page.url() !== before) {

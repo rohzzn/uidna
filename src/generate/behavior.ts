@@ -40,6 +40,12 @@ export interface StateVar {
   /** Exclusive group of `select` states (the path of the targets' common parent), else null. */
   readonly group: string | null;
   readonly description: string;
+  /**
+   * Store key of a toggle whose changes span several section files (a menu button in the
+   * header, the drawer it opens in the main section): every file declares it and reads it
+   * from `src/lib/shared-state.ts`. Absent for state that lives in one file.
+   */
+  readonly shared?: string;
 }
 
 /** Classes that switch with a state. */
@@ -840,21 +846,19 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
         !(l.location.file === anchor.file && l.location.instanceRoot === anchor.instanceRoot) &&
         !(isDetails && inSummary(l.change.path)),
     );
+    // Changes in other section files share the state through the store; component instances are inlined instead.
+    let crossFiles: string[] = [];
     if (foreign.length > 0) {
-      const files = [...new Set(foreign.map((l) => l.location?.file ?? '?'))].join(', ');
+      const files = [...new Set(foreign.map((l) => l.location?.file ?? '?'))];
       const roots = new Set<string>();
       if (anchor.instanceRoot !== null) roots.add(anchor.instanceRoot);
       for (const l of foreign) if (l.location?.instanceRoot !== null && l.location?.instanceRoot !== undefined) roots.add(l.location.instanceRoot);
-      for (const root of roots) conflictingInstanceRoots.add(root);
-      report(
-        transition,
-        'not-implemented',
-        roots.size > 0
-          ? `changes span ${anchor.file} and ${files}; the component instances at ${[...roots].join(', ')} are rendered inline on the next planning pass so the state stays in one file`
-          : `changes span ${anchor.file} and ${files}; state hoisting across files is not implemented in the baseline`,
-        null,
-      );
-      continue;
+      if (roots.size > 0) {
+        for (const root of roots) conflictingInstanceRoots.add(root);
+        report(transition, 'not-implemented', `changes span ${anchor.file} and ${files.join(', ')}; the component instances at ${[...roots].join(', ')} are rendered inline on the next planning pass so the state stays in one file`, null);
+        continue;
+      }
+      crossFiles = files.filter((file) => file !== anchor.file);
     }
 
     const detailsChange = isDetails && parent ? locations.find((l) => l.change.path === parent.path && l.change.attrs.has('open')) : undefined;
@@ -863,6 +867,10 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
     const targetFrom = fromState.nodes.find((n) => n.path === target.path);
     const becameSelected = targetTo !== undefined && (targetTo.attrs['aria-selected'] === 'true' || targetTo.a11y.selected === true) && !(targetFrom?.attrs['aria-selected'] === 'true' || targetFrom?.a11y.selected === true);
     const mode: StateVar['mode'] = detailsChange ? 'details' : becameSelected && !isDetails ? 'select' : 'toggle';
+    if (crossFiles.length > 0 && mode !== 'toggle') {
+      report(transition, 'not-implemented', `changes span ${anchor.file} and ${crossFiles.join(', ')}; only toggles share their state across files`, null);
+      continue;
+    }
     const escape = mode === 'select' ? undefined : transitions.find((t) => t.action.type === 'key' && t.action.key === 'Escape' && t.from === transition.to && t.to === transition.from && !t.sideEffects);
     const reproducible = locations.filter((l) => !(mode === 'details' && inSummary(l.change.path) && (l.change.attrs.size > 0 || l.change.text !== null))).map((l) => l.change);
     const revert = escape === undefined ? null : { step: stepOf(escape, toState), expectations: expectationsOf(reproducible, true) };
@@ -884,10 +892,12 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
       mode,
       group: mode === 'select' ? (target.parent?.path ?? '') : null,
       description: `${describeAction(transition)} on ${describeTarget(action.target)} (${transition.id})`,
+      ...(crossFiles.length > 0 ? { shared: `${model.pageId}/${name}` } : {}),
     };
     implementedKeys.set(key, state);
     if (escape) escapeReverts.add(escape.id);
     declare(anchor.file, state);
+    for (const file of crossFiles) declare(file, state);
 
     const wired: string[] = [];
     const notReproduced: string[] = [];
@@ -933,6 +943,7 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
       notes.push(reverseClick ? `the reverse click was observed (${reverseClick.id})` : 'toggling back is assumed, the reverse click was not observed');
     }
     if (anchor.instanceRoot !== null) notes.push('state lives in the component, so every instance toggles independently');
+    if (crossFiles.length > 0) notes.push(`the state is shared with ${crossFiles.join(', ')} through src/lib/shared-state.ts`);
     if (diff.skippedProperties > 0) notes.push(`${diff.skippedProperties} changed propert${diff.skippedProperties === 1 ? 'y' : 'ies'} could not be expressed as classes`);
     if (notReproduced.length > 0) notes.push(`not reproduced: ${notReproduced.join(', ')}`);
     report(transition, 'implemented', `${name}: ${wired.join(', ')}; ${notes.join('; ')}`, anchor.file, testOf(expectationsOf(reproducible), revert));

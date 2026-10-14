@@ -225,11 +225,11 @@ Fixture A is in [`docs/examples/fixture-a.dna.json`](docs/examples/fixture-a.dna
 ## A measured run
 
 <!-- numbers:begin -->
-Measured on Fixture A (`http://127.0.0.1:56795/`) by scan `scan_20261014_49b52f` with tool version 0.2.0:
+Measured on Fixture A (`http://127.0.0.1:51767/`) by scan `scan_20261014_13cdb7` with tool version 0.2.0:
 
 | Step | Result |
 | --- | --- |
-| scan | 3 base states at 1280, 768, 390 px; 71 / 71 / 71 nodes; 1 asset; 110.7 s of browser time for scan and explore together |
+| scan | 3 base states at 1280, 768, 390 px; 71 / 71 / 71 nodes; 1 asset; 113.7 s of browser time for scan and explore together |
 | explore (safe) | 36 interactive elements discovered, 88 interactions performed, 69 produced a new state, 44 skipped with a reason; 73 transitions, 69 derived states |
 | tokens | 10 colors, 17 typography styles, 11 font sizes, 12 spacing values, 4 radii, 1 shadow, 2 breakpoints |
 | breakpoints | located 768px (css, bracket 767–768), 1024px (css, bracket 768–1280); 2 stylesheet conditions read, 73 layout rules, 4 widths measured |
@@ -290,10 +290,11 @@ yours; UI DNA reads the page and performs the same safe interactions.
   filters, server-side search, pagination and load-more are not explored or reproduced;
   generated collections show the captured items, not the endpoint's data.
 - Spacing tokens are used values: a `margin: auto` shows up as the pixel margin it produced.
-- Hover and focus transitions are reproduced as CSS variants at every viewport; click
-  transitions are reproduced when the changed nodes live in the same section or component
-  as the trigger. Every behavior the generator could not implement is listed in the
-  generated README and skipped in its Playwright suite.
+- Hover and focus transitions are reproduced as CSS variants at every viewport. Click
+  toggles are reproduced, sharing their state across section files when the changed nodes
+  live elsewhere; component instances changed together with nodes outside them are
+  rendered inline instead. Every behavior the generator could not implement is listed in
+  the generated README and skipped in its Playwright suite.
 - The generator is a baseline, not a finished product: names are placeholders and the agent
   is expected to repair against the DiffReport.
 - Verification compares at the scanned viewports with system fonts; cross-machine pixel
@@ -322,7 +323,7 @@ tests/             end-to-end loops on Fixtures A, B, C and D, and the MCP serve
 npm ci
 npm run build
 npm run test:unit    # real Chromium against the fixtures and synthetic pages, no module mocks
-npm run test:e2e     # the Phase 1 and Phase 2 loops and the MCP server (about 25 minutes)
+npm run test:e2e     # the Phase 1 and Phase 2 loops and the MCP server (about 35 minutes)
 npm run docs:catalog
 ```
 

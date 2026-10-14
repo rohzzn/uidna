@@ -170,6 +170,8 @@ describe('Phase 2 loop on Fixture B (dashboard: search, filter, sort, breakpoint
     expect(main).toContain('applyView(COLLECTION_01');
     expect(main).toContain('aria-pressed:');
     expect(main).not.toMatch(/fetch\(/);
+    expect(main).toContain("useSharedState(");
+    expect(await readFile(join(projectDir, 'src', 'sections', 'Header.tsx'), 'utf8')).toContain("useSharedState(");
     expect(await readFile(join(projectDir, 'src', 'lib', 'collection.ts'), 'utf8')).toContain('export function applyView');
   });
 
@@ -185,7 +187,12 @@ describe('Phase 2 loop on Fixture B (dashboard: search, filter, sort, breakpoint
     const findings = [...report.visual.flatMap((v) => v.findings), ...report.behavioral.flatMap((b) => b.findings)];
     expect(findings.filter((f) => f.property.startsWith('collection:'))).toEqual([]);
     expect((report.responsive ?? []).map((r) => r.minWidth)).toEqual([600, 960, 1100]);
-    for (const check of (report.responsive ?? []).filter((r) => r.minWidth !== 600)) expect(check.findings, `breakpoint ${check.minWidth}`).toEqual([]);
+    for (const check of report.responsive ?? []) expect(check.findings, `breakpoint ${check.minWidth}`).toEqual([]);
+    // The sidebar toggle in the header opens the drawer in the main section: one state shared across the two files.
+    const toggles = report.behavioral.filter((b) => b.action.target?.name === 'Open navigation');
+    expect(toggles.length).toBeGreaterThan(0);
+    expect(toggles.filter((b) => b.roleTreeMatch !== true).map((b) => b.transitionId)).toEqual([]);
+    expect(report.summary.transitionsMatched).toBe(report.summary.transitionsReplayed);
   });
 
   it('passes the generated Playwright suite, catches a broken sort and resolves it after the revert', async () => {

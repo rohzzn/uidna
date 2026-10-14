@@ -127,8 +127,9 @@ function widthToEmit(view: NodeView, extentMismatch: { width: boolean; height: b
   if (isEmptyNode(node)) return fillsParent ? '100%' : value;
   const position = styleValue(style, 'position');
   if (position === 'absolute' || position === 'fixed') {
-    if (styleValue(style, 'left') !== 'auto' && styleValue(style, 'right') !== 'auto') return null;
-    return value;
+    // A stretched box takes its width from its insets. An anchored one keeps its measured width: its children
+    // stretch to whatever width it has, so they cannot tell an authored width from a shrink-to-fit one.
+    return positionedAxis(style, 'left', 'right') === 'stretch' ? null : value;
   }
   const maxWidth = parsePx(styleValue(style, 'max-width'));
   if (maxWidth !== null && Math.abs(maxWidth - node.box.width) <= 1) return null;
@@ -165,12 +166,19 @@ function heightToEmit(view: NodeView, extentMismatch: { width: boolean; height: 
   if (REPLACED_TAGS.has(tag)) return value;
   if (isEmptyNode(node)) return value;
   const position = styleValue(style, 'position');
-  if ((position === 'absolute' || position === 'fixed') && styleValue(style, 'top') !== 'auto' && styleValue(style, 'bottom') !== 'auto') return null;
+  // A stretched positioned box takes its height from its insets; an anchored one follows the content rules below.
+  if ((position === 'absolute' || position === 'fixed') && positionedAxis(style, 'top', 'bottom') === 'stretch') return null;
   const minHeight = parsePx(styleValue(style, 'min-height'));
   if (minHeight !== null && minHeight > 0 && Math.abs(minHeight - node.box.height) <= 1) return null;
   const maxHeight = parsePx(styleValue(style, 'max-height'));
   if (maxHeight !== null && Math.abs(maxHeight - node.box.height) <= 1) return null;
   if (node.text !== null) return null;
+  // Margins never collapse through a flex or grid container: a box taller than its children is
+  // an authored height, unless its own flex or grid parent stretches it to the row height.
+  const display = displayOf(view);
+  const parentDisplay = view.parent ? displayOf(view.parent) : 'block';
+  const stretched = /(?:flex|grid)$/.test(parentDisplay);
+  if (/(?:flex|grid)$/.test(display) && !stretched && extentMismatch.height && !extentMismatch.allEmpty) return value;
   // A container with flowing children only proves an authored height when the content does
   // not fit (clipping or scrolling); extra space can be collapsed margins, so it is not evidence.
   // A control whose children are all empty decorative boxes (a hamburger button, an icon
@@ -178,6 +186,22 @@ function heightToEmit(view: NodeView, extentMismatch: { width: boolean; height: 
   if (extentMismatch.overflow) return value;
   if (extentMismatch.height && extentMismatch.allEmpty) return value;
   return extentMismatch.width && extentMismatch.allEmpty ? value : null;
+}
+
+/**
+ * Which inset of an absolutely or fixed positioned box was authored, on one
+ * axis. Computed styles resolve both insets to pixels, so the box is anchored
+ * on the side nearer its containing block's edge (its size is emitted), unless
+ * both are near 0: a stretched box (`inset: 0`) takes its size from them.
+ */
+export function positionedAxis(style: StyleRecord, start: 'left' | 'top', end: 'right' | 'bottom'): 'stretch' | 'start' | 'end' {
+  const a = parsePx(styleValue(style, start));
+  const b = parsePx(styleValue(style, end));
+  if (a === null && b === null) return 'start';
+  if (a === null) return 'end';
+  if (b === null) return 'start';
+  if (Math.abs(a) <= 1 && Math.abs(b) <= 1) return 'stretch';
+  return Math.abs(a) <= Math.abs(b) ? 'start' : 'end';
 }
 
 /** Compare the content box with the children's extent (including margins). */
@@ -212,6 +236,10 @@ export function selectEmitted(view: NodeView, options: EmitOptions): Map<string,
   const backgroundImage = get('background-image') ?? 'none';
   const gradient = backgroundImage !== 'none' && /^(?:repeating-)?(?:linear|radial|conic)-gradient\(/.test(backgroundImage) && !backgroundImage.includes('url(');
   const mismatch = extentMismatchOf(view);
+  const position = get('position');
+  const positioned = position === 'absolute' || position === 'fixed';
+  const horizontal = positioned ? positionedAxis(style, 'left', 'right') : 'stretch';
+  const vertical = positioned ? positionedAxis(style, 'top', 'bottom') : 'stretch';
 
   for (const property of RENDERING_STYLE_PROPERTIES) {
     const value = style[property];
@@ -221,6 +249,10 @@ export function selectEmitted(view: NodeView, options: EmitOptions): Map<string,
     if (SVG_ONLY.has(property)) continue;
     if (INHERITED_PROPERTIES.has(property) && options.inheritedSkip?.(property) === true) {
       if (!(property === 'list-style-type' && (renderedTag === 'ul' || renderedTag === 'ol' || renderedTag === 'menu'))) continue;
+    }
+    if ((property === 'right' || property === 'left' || property === 'top' || property === 'bottom') && positioned) {
+      const axis = property === 'left' || property === 'right' ? horizontal : vertical;
+      if ((axis === 'start' && (property === 'right' || property === 'bottom')) || (axis === 'end' && (property === 'left' || property === 'top'))) continue;
     }
     switch (property) {
       case 'display':

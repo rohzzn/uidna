@@ -38,6 +38,24 @@ each proven end to end on the new Fixture B (an orders dashboard) in real Chromi
   collection is one action: after a side effect it is skipped in every item.
 - Captures keep identity attributes (`data-id` and similar) and table `scope`, `colspan`
   and `rowspan`.
+- A click toggle whose changes span several section files (a menu button in the header
+  and the drawer it opens in the main section) shares one state through
+  `src/lib/shared-state.ts` instead of being left out.
+- Absolutely and fixed positioned boxes keep the inset they are anchored by and their
+  measured width, and drop the opposite inset, which the browser resolves to the scanned
+  width; a box stretched by both insets keeps both.
+- A flex or grid container taller than its children keeps its height (margins never
+  collapse there), unless its own flex or grid parent stretches it.
+- Together with the shared toggle state, these changes took the generated Fixture B
+  dashboard from 112 to 116 of 116 matched transitions and from 2 to 3 of 3 breakpoints
+  matched on both sides.
+- The HTML report shows each page's route from the generated project's manifest, and says
+  when a page was not generated.
+
+### Fixed
+
+- `act()` waits for the popup of a click whose request the guard already saw, so a slow
+  popup report under load no longer makes the click count as performed.
 
 - `uidna setup` registers `npx -y @rohzzn/uidna@latest serve`. With the bare package name,
   npx run inside a checkout of this repository resolved to the checkout and the server

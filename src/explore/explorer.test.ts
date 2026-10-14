@@ -18,7 +18,8 @@ import { unwrap } from '../domain/result.js';
 import { FIXTURE_A, tempDir } from '../../tests/helpers.js';
 import { exploreInteractions, MAX_CHANGED_NODE_IDS, type ExploreOutcome } from './explorer.js';
 
-const RUN_TIMEOUT = 110_000;
+// Generous: with files in parallel, several Chromium suites share the machine.
+const RUN_TIMEOUT = 240_000;
 
 let server: StaticServer;
 let ctx: WorkflowContext;

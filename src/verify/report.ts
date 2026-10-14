@@ -5,7 +5,7 @@
  * is escaped before it reaches the markup.
  */
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import type { Attributed, Page, Token, TypographyStyle, UiDnaDocument, UiState } from '@rohzzn/uidna-schema';
@@ -14,11 +14,12 @@ import type { ScanRecord } from '../application/records.js';
 import { pngSize } from '../browser/capture.js';
 import { BoxMatchSchema, type DiffReport, type Finding, type VisualComparison } from '../contracts/diff-report.js';
 import { toError } from '../domain/errors.js';
+import { MANIFEST_FILE } from '../generate/project.js';
 import { err, ok, tryCatch, type Result } from '../domain/result.js';
 import { severityRank } from './findings.js';
 import { GENERATED_TESTS_FILE, GeneratedTestRunSchema, type GeneratedTestRun } from './generated-tests.js';
 import { attr, escapeHtml, formatNumber, formatPercent, safeCssColor } from './html.js';
-import { orderByPage, pageRoute } from './pages.js';
+import { generatedRoutesFromManifest, orderByPage, pageNotGenerated, pageRoute, type GeneratedRoutes } from './pages.js';
 
 /** Input of `renderReport`. */
 export interface RenderReportInput {
@@ -264,8 +265,18 @@ function coverageText(page: Page): string {
   return `coverage: ${c.discovered} interactive elements discovered, ${c.explored} interactions explored, ${c.changed} changed the page, ${c.skipped} skipped`;
 }
 
+/** The routes the generated project renders, from its manifest when it was generated from this scan; null otherwise. */
+async function generatedRoutesOf(outDir: string, scanId: string): Promise<GeneratedRoutes | null> {
+  try {
+    const parsed = generatedRoutesFromManifest(JSON.parse(await readFile(join(outDir, MANIFEST_FILE), 'utf8')) as unknown, scanId);
+    return parsed.ok ? parsed.value : null;
+  } catch {
+    return null;
+  }
+}
+
 /** One section per page of the document (document order) with its base states, then the states of pages the document does not list. */
-async function renderPages(dna: UiDnaDocument, attempts: readonly DiffReport[], paths: ArtifactPaths): Promise<{ html: string; states: number }> {
+async function renderPages(dna: UiDnaDocument, attempts: readonly DiffReport[], paths: ArtifactPaths, generated: GeneratedRoutes | null): Promise<{ html: string; states: number }> {
   const baseStates = orderByPage(
     dna,
     dna.states.items.filter((s) => s.kind === 'base'),
@@ -274,11 +285,12 @@ async function renderPages(dna: UiDnaDocument, attempts: readonly DiffReport[], 
   const rendered = new Set<string>();
   for (const page of dna.app.pages) {
     const states = baseStates.filter((s) => s.pageId === page.id);
-    const route = pageRoute(dna, page.id);
+    const route = generated === null ? pageRoute(dna, page.id) : (generated.routeByPageId.get(page.id) ?? null);
     const facts: string[] = [];
     if (page.depth !== undefined) facts.push(`crawl depth ${page.depth}`);
     if (page.discoveredVia !== undefined && page.discoveredVia !== null) facts.push(`discovered via ${page.discoveredVia}`);
-    if (route !== null) facts.push(`route ${route}`);
+    if (generated !== null && pageNotGenerated(generated, page.id)) facts.push('not generated (the generated project does not list it)');
+    else if (route !== null) facts.push(`route ${route}${generated?.source === 'manifest' ? ' in the generated project' : ''}`);
     facts.push(coverageText(page));
     const body: string[] = [];
     for (const state of states) {
@@ -532,7 +544,7 @@ export async function renderReport(input: RenderReportInput): Promise<Result<Ren
   const latest = attempts.length > 0 ? (attempts[attempts.length - 1] ?? null) : null;
   const outPath = isAbsolute(input.outPath) ? input.outPath : resolve(ctx.cwd, input.outPath);
   const paths = new ArtifactPaths(ctx, scan.scanId, dirname(outPath));
-  const pages = await renderPages(dna, attempts, paths);
+  const pages = await renderPages(dna, attempts, paths, latest === null ? null : await generatedRoutesOf(latest.outDir, scan.scanId));
 
   const html = [
     '<!doctype html>',

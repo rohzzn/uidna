@@ -41,7 +41,7 @@ import {
   type MockRecord,
   type ProjectFeatures,
 } from './project.js';
-import { bodyClasses, makeScopeResolver, planPageSections, planSections, renderApp, renderComponent, renderLayout, renderRouterApp, renderSection, type RenderContext, type SectionPlan } from './render.js';
+import { bodyClasses, makeScopeResolver, planPageSections, planSections, renderApp, renderComponent, renderLayout, renderRouterApp, renderSection, type RenderContext, type SectionPlan, renderSharedStateLib } from './render.js';
 import { makeRouteResolver, planSite, type RouterMode } from './site.js';
 import { responsiveClasses, type NodeClasses } from './styles.js';
 import type { SkippedProperty } from './tailwind-map.js';
@@ -189,6 +189,7 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
   const reports: BehaviorReport[] = [];
   const forms: FormBehavior[] = [];
   const collectionPlans: CollectionPlan[] = [];
+  let sharedState = false;
   const collectionGaps: { readonly id: string; readonly reason: string }[] = [];
   const skipped: SkippedProperty[] = [];
   const bodyClassNotes: string[] = [];
@@ -247,6 +248,7 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
     const { components, behavior, collections } = planned2;
     const ctx: RenderContext = { model, tokens: tokens.index, assets, components, behavior, classesOf, scanId: dna.target.scanId, routeOf, collections };
     collectionPlans.push(...collections.plans);
+    if ([...behavior.stateVars.values()].some((vars) => vars.some((v) => v.shared !== undefined))) sharedState = true;
     collectionGaps.push(...collections.notImplemented);
 
     progress.report({ message: `Rendering ${multi ? `page ${page.page.id}` : 'sections and components'}`, current: 3, total: 7 });
@@ -296,6 +298,7 @@ export async function generateProject(input: GenerateInput): Promise<Result<Gene
   }
   if (forms.length > 0) files.set('src/lib/validity.ts', renderValidityLib());
   if (collectionPlans.length > 0) files.set('src/lib/collection.ts', renderCollectionLib());
+  if (sharedState) files.set('src/lib/shared-state.ts', renderSharedStateLib());
 
   // Mocks: Phase 1 JSON assets stay in src/mocks/data.ts; captured responses (`data` assets) get one typed file each.
   const mockInputs: { asset: (typeof dna.assets)[number]; json: unknown; reason: string | null }[] = [];
