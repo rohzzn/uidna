@@ -11,7 +11,11 @@
  * `allowNavigation: 'same-origin'` (crawling), which follows one GET
  * navigation (never a form POST) and honours robots.txt and the per-origin
  * rate limit on the way. Fill and submit actions additionally abort every
- * non-GET request they trigger and report it in `blockedRequests`.
+ * non-GET request they trigger and report it in `blockedRequests`;
+ * `holdNonGetGuard()` keeps that guard up between actions as well (a form
+ * chain, from its first step to the fresh load that reverts it), including
+ * for the beacons and keepalive requests of a document being unloaded, which
+ * Playwright neither reports nor routes.
  */
 import { randomBytes } from 'node:crypto';
 import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, Locator, Page, Request, Route } from 'playwright';
@@ -21,7 +25,7 @@ import { toError, uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { JsonBodyRecorder } from './bodies.js';
 import { capturePage, snapshotPage, type CaptureContext } from './capture.js';
-import { ControlFactsSchema, SubmitResultSchema } from './cdp-schemas.js';
+import { ControlFactsSchema, RequestPausedSchema, SubmitResultSchema } from './cdp-schemas.js';
 import { planFill, readControlFacts, submitFormAt } from './forms.js';
 import { addInitScriptInPage, evaluateHandleInPage, evaluateInPage } from './in-page.js';
 import { NetworkLedger } from './network.js';
@@ -37,6 +41,7 @@ import type {
   NavigateOptions,
   NavigationOutcome,
   NetworkEntry,
+  NonGetGuardHold,
   PageSnapshot,
   StabilityOptions,
   StabilityOutcome,
@@ -52,14 +57,22 @@ export const DEFAULT_ACTION_TIMEOUT_MS = 5000;
 /** Timeout for an action whose target is hidden when the action starts (it may still appear, briefly). */
 export const HIDDEN_TARGET_TIMEOUT_MS = 1000;
 
-/** `NetworkEntry.failure` of a document navigation (same- or cross-origin) that an action triggered and UI DNA aborted instead of sending. */
-export const BLOCKED_NAVIGATION_FAILURE = 'blocked by UI DNA: document navigation during an action';
+/** Prefix of every `NetworkEntry.failure` UI DNA sets on a request it aborted instead of sending. */
+export const BLOCKED_BY_UIDNA = 'blocked by UI DNA';
 
-/** `NetworkEntry.failure` of a non-GET request (form submission, XHR, fetch) that a fill/submit action triggered and UI DNA aborted instead of sending. */
-export const BLOCKED_REQUEST_FAILURE = 'blocked by UI DNA: non-GET request during a fill/submit action';
+/** `NetworkEntry.failure` of a document navigation (same- or cross-origin) that an action triggered and UI DNA aborted instead of sending. */
+export const BLOCKED_NAVIGATION_FAILURE = `${BLOCKED_BY_UIDNA}: document navigation during an action`;
+
+/** `NetworkEntry.failure` of a non-GET request (form submission, XHR, fetch, beacon) that a fill/submit action triggered, or that was made while a non-GET guard was held, and UI DNA aborted instead of sending. */
+export const BLOCKED_REQUEST_FAILURE = `${BLOCKED_BY_UIDNA}: non-GET request during a fill/submit action`;
 
 /** `NetworkEntry.failure` prefix of a same-origin navigation a click was allowed to follow but robots.txt disallows. */
-export const ROBOTS_BLOCKED_NAVIGATION_FAILURE = 'blocked by UI DNA: robots.txt disallows the navigation';
+export const ROBOTS_BLOCKED_NAVIGATION_FAILURE = `${BLOCKED_BY_UIDNA}: robots.txt disallows the navigation`;
+
+/** True when UI DNA aborted the request instead of sending it: it never reached a server. */
+export function blockedByUiDna(entry: Pick<NetworkEntry, 'failure'>): boolean {
+  return entry.failure?.startsWith(BLOCKED_BY_UIDNA) === true;
+}
 
 /** How long a fill/submit action waits for the requests it triggered to settle, so every one of them met the guard before it is removed. */
 export const ACTION_SETTLE_TIMEOUT_MS = 2000;
@@ -148,6 +161,8 @@ export class PlaywrightSession implements BrowserSession {
   private readonly lastNavigationAt = new Map<string, number>();
   /** Node id → node path of the last `capture()`; valid only while the captured document is still current. */
   private lastCapturePaths = new Map<string, string>();
+  /** Non-GET guards currently held (`holdNonGetGuard`); while any is, every action blocks non-GET requests. */
+  private heldGuards = 0;
   private closed = false;
 
   constructor(deps: SessionDeps) {
@@ -260,8 +275,10 @@ export class PlaywrightSession implements BrowserSession {
     const networkMarker = this.ledger.mark();
     // A click may follow one same-origin document navigation (crawled pages); nothing else ever leaves the document.
     const followSameOrigin = action.kind === 'click' && action.allowNavigation === 'same-origin';
-    // Fill and submit actions never let a non-GET request (form submission, XHR, fetch) reach any server.
-    const blockNonGet = action.kind === 'fill' || action.kind === 'submit';
+    // Fill and submit actions never let a non-GET request (form submission, XHR, fetch) reach any server, and no
+    // action does while a guard is held. This route takes precedence over the held guard's (Playwright runs the
+    // handler added last first) and only continues GET requests, so nesting it lets nothing through.
+    const blockNonGet = action.kind === 'fill' || action.kind === 'submit' || this.heldGuards > 0;
     let navigated = false;
     const blocked: string[] = [];
     let blockedDetail = '';
@@ -330,8 +347,7 @@ export class PlaywrightSession implements BrowserSession {
       }
       await route.continue().catch(() => undefined);
     };
-    // In launch mode the context is ours, so popups are guarded too; in cdp mode only this page is touched.
-    const router: Page | BrowserContext = this.ownsBrowser ? this.page.context() : this.page;
+    const router = this.router();
     let routed = false;
     this.page.on('framenavigated', onNavigated);
     this.page.on('popup', onPopup);
@@ -391,6 +407,75 @@ export class PlaywrightSession implements BrowserSession {
       this.page.off('popup', onPopup);
       if (routed) await router.unroute('**/*', guard).catch(() => undefined);
     }
+  }
+
+  /** @inheritdoc */
+  async holdNonGetGuard(): Promise<Result<NonGetGuardHold>> {
+    if (this.closed) return err(uidnaError('browser', 'Session is closed'));
+    const marker = this.ledger.mark();
+    const router = this.router();
+    // Requests Playwright tracks are routed: a non-GET one is aborted and recorded with UI DNA's reason.
+    const guard = async (route: Route): Promise<void> => {
+      const request = route.request();
+      if (request.method().toUpperCase() === 'GET') {
+        await route.continue().catch(() => undefined);
+        return;
+      }
+      this.ledger.block(request, BLOCKED_REQUEST_FAILURE);
+      await route.abort('aborted').catch(() => undefined);
+    };
+    let interceptor: CDPSession | null = null;
+    try {
+      await router.route('**/*', guard);
+      // Requests the inspector cannot attribute (the beacons and keepalive requests of a document being unloaded)
+      // carry no network id: Playwright continues them without a route or a request event. A CDP session of the
+      // guard's own intercepts every request of the page after (or before) Playwright's and fails those.
+      const cdp = await this.page.context().newCDPSession(this.page);
+      interceptor = cdp;
+      cdp.on('Fetch.requestPaused', (payload) => this.onRequestPaused(cdp, payload));
+      await cdp.send('Fetch.enable');
+    } catch (cause) {
+      await router.unroute('**/*', guard).catch(() => undefined);
+      if (interceptor !== null) await interceptor.detach().catch(() => undefined);
+      return err(toError(cause, 'browser', 'The non-GET guard could not be installed'));
+    }
+    const cdp = interceptor;
+    this.heldGuards += 1;
+    let released = false;
+    return ok({
+      release: async () => {
+        if (released) return;
+        released = true;
+        try {
+          // Like `act()`: requests the page has just started meet the guard before it is removed.
+          await this.page.waitForTimeout(100);
+          await this.settleRequests(marker);
+        } catch {
+          // The page is gone: nothing is left to guard.
+        }
+        this.heldGuards = Math.max(0, this.heldGuards - 1);
+        await cdp.send('Fetch.disable').catch(() => undefined);
+        await cdp.detach().catch(() => undefined);
+        await router.unroute('**/*', guard).catch(() => undefined);
+      },
+    });
+  }
+
+  /**
+   * `Fetch.requestPaused` on a held guard's own CDP session: a non-GET request
+   * without a network id (untracked, so never routed) is failed and recorded;
+   * every other request is continued, and the route sees the tracked ones.
+   */
+  private onRequestPaused(cdp: CDPSession, payload: unknown): void {
+    const event = RequestPausedSchema.safeParse(payload);
+    if (!event.success) return;
+    const { requestId, request, networkId, resourceType } = event.data;
+    if (networkId === undefined && request.method.toUpperCase() !== 'GET') {
+      this.ledger.recordUntracked({ method: request.method, url: request.url, resourceType }, BLOCKED_REQUEST_FAILURE);
+      cdp.send('Fetch.failRequest', { requestId, errorReason: 'Aborted' }).catch(() => undefined);
+      return;
+    }
+    cdp.send('Fetch.continueRequest', { requestId }).catch(() => undefined);
   }
 
   /** @inheritdoc */
@@ -486,6 +571,11 @@ export class PlaywrightSession implements BrowserSession {
       networkLimitation: documentNetwork === null ? NETWORK_INCOMPLETE_LIMITATION : null,
       jsonBodies: (maxBodyBytes) => this.bodies.collect(maxBodyBytes),
     };
+  }
+
+  /** Where request guards are installed: in launch mode the context is ours, so popups are guarded too; in cdp mode only this page is touched. */
+  private router(): Page | BrowserContext {
+    return this.ownsBrowser ? this.page.context() : this.page;
   }
 
   /** Wait (bounded) until the requests recorded since `marker` have finished or failed, so a blocked request is never left pending. */

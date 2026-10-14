@@ -188,6 +188,12 @@ export interface NavigationOutcome {
   readonly redirected: boolean;
 }
 
+/** A held non-GET guard; see `BrowserSession.holdNonGetGuard`. */
+export interface NonGetGuardHold {
+  /** Wait (bounded) for the requests made while the guard was held to settle, then remove it. Idempotent; never throws. */
+  release(): Promise<void>;
+}
+
 /** A live browser page under UI DNA's control. */
 export interface BrowserSession {
   readonly id: string;
@@ -210,6 +216,17 @@ export interface BrowserSession {
   snapshot(): Promise<Result<PageSnapshot>>;
   /** Perform an action. Never navigates cross-origin: such actions report `performed: false`. */
   act(action: UiAction): Promise<Result<ActionOutcome>>;
+  /**
+   * Keep every non-GET request of the page from reaching a server until the
+   * returned hold is released, between actions too: such requests (fetch,
+   * XHR, form submissions, and the beacons and keepalive requests of a
+   * document being unloaded) are aborted and recorded in the network ledger
+   * with a `failure` that starts with `blocked by UI DNA`. GET requests,
+   * document navigations included, proceed. Every action performed while a
+   * guard is held blocks non-GET requests as fill and submit actions do.
+   * Holds nest; release each one once.
+   */
+  holdNonGetGuard(): Promise<Result<NonGetGuardHold>>;
   /** Wait until the DOM and network are quiet. */
   waitForStability(options?: StabilityOptions): Promise<Result<StabilityOutcome>>;
   /** Freeze animations, transitions, carets and smooth scrolling for deterministic screenshots. */

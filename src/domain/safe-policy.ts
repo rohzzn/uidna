@@ -316,11 +316,16 @@ export function pageLevelActions(): PageLevelAction[] {
   ];
 }
 
+/** True for a request whose method is not GET, HEAD or OPTIONS: a side effect, counted as `nonGet`. */
+export function isNonGetRequest(entry: Pick<NetworkEntry, 'method'>): boolean {
+  return !READ_METHODS.has(entry.method.toUpperCase());
+}
+
 /** Count requests whose method is not GET, HEAD or OPTIONS (a side effect) among `entries`. */
 export function isSideEffect(entries: readonly NetworkEntry[]): { nonGet: number; total: number } {
   let nonGet = 0;
   for (const entry of entries) {
-    if (!READ_METHODS.has(entry.method.toUpperCase())) nonGet += 1;
+    if (isNonGetRequest(entry)) nonGet += 1;
   }
   return { nonGet, total: entries.length };
 }
@@ -398,6 +403,18 @@ const AUTOCOMPLETE_VALUES: Readonly<Record<string, string>> = {
   'honorific-prefix': 'Ms',
 };
 
+/**
+ * The string `record` holds under `key` as its own property. The keys come
+ * from the page (control names, ids, autocomplete tokens, types), so an
+ * inherited member such as `constructor`, `toString` or `__proto__` is never
+ * taken for a value.
+ */
+function ownValue(record: Readonly<Record<string, string>>, key: string | undefined): string | undefined {
+  if (key === undefined || !Object.hasOwn(record, key)) return undefined;
+  const value: unknown = record[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
 /** The control type as the browser normalizes it (`form.type`), else the attribute, else `text`. */
 function controlType(node: UiNode): string {
   const tag = node.tag.toLowerCase();
@@ -433,11 +450,11 @@ function firstOptionValue(select: UiNode, byId: ReadonlyMap<string, UiNode>): st
 function textValue(node: UiNode, type: string): { value: string; source: string } {
   const tokens = (node.attrs.autocomplete ?? '').trim().toLowerCase().split(/\s+/).filter((token) => token.length > 0);
   for (const token of tokens) {
-    const value = AUTOCOMPLETE_VALUES[token];
+    const value = ownValue(AUTOCOMPLETE_VALUES, token);
     if (value !== undefined) return { value, source: `autocomplete ${token}` };
   }
   if (type !== 'text' && type !== 'search') {
-    const byType = (SYNTHETIC_VALUES as Readonly<Record<string, string>>)[type];
+    const byType = ownValue(SYNTHETIC_VALUES, type);
     if (byType !== undefined) return { value: byType, source: `type ${type}` };
   }
   const label = `${node.attrs.name ?? ''} ${node.attrs.id ?? ''} ${node.name ?? ''}`;
@@ -563,8 +580,9 @@ export function classifyForms(state: CapturedState, options: FormsOptions = {}):
         skip('read-only');
         continue;
       }
-      const given = formValues[control.attrs.name ?? ''] ?? formValues[control.attrs.id ?? ''];
-      const givenSource = control.attrs.name !== undefined && formValues[control.attrs.name] !== undefined ? `formValues["${control.attrs.name}"]` : `formValues["${control.attrs.id ?? ''}"]`;
+      const byName = ownValue(formValues, control.attrs.name ?? '');
+      const given = byName ?? ownValue(formValues, control.attrs.id ?? '');
+      const givenSource = control.attrs.name !== undefined && byName !== undefined ? `formValues["${control.attrs.name}"]` : `formValues["${control.attrs.id ?? ''}"]`;
       if (type === 'checkbox') {
         if (!isRequired(control)) {
           skip('optional checkbox left as is');
@@ -610,6 +628,19 @@ export function classifyForms(state: CapturedState, options: FormsOptions = {}):
     plans.push({ form, submitTarget, fills });
   }
   return { forms: plans, skipped };
+}
+
+/**
+ * The deny phrase that forbids submitting through `node` as `state` shows it
+ * now, or null: for a submit control, its accessible name, own text,
+ * `aria-label`, `title` or descendants' text, as `classifyForms` checks them;
+ * for a form submitted directly, its name, `aria-label` or `title`. Used to
+ * re-check a submit target found again in a state an earlier step produced.
+ */
+export function submitDenial(node: UiNode, state: CapturedState, denyNames: readonly string[] = DEFAULT_DENY_NAMES): string | null {
+  if (node.tag.toLowerCase() === 'form') return matchDenyName(node.name, denyNames) ?? matchDenyName(node.attrs['aria-label'], denyNames) ?? matchDenyName(node.attrs.title, denyNames);
+  const byId = new Map(state.nodes.map((candidate) => [candidate.id, candidate] as const));
+  return deniedName(node, denyNames, subtreeText(node, byId));
 }
 
 /**

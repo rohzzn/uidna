@@ -10,7 +10,7 @@ import { describeError, uidnaError } from '../domain/errors.js';
 import { envelope, type Envelope } from '../domain/evidence.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { Transition } from '@rohzzn/uidna-schema';
-import { effectKey, exploreInteractions as runExplorer } from '../explore/index.js';
+import { effectKey, exploreInteractions as runExplorer, keyPressEffectKey } from '../explore/index.js';
 import type { WorkflowContext } from './context.js';
 import { withOutRoot } from './context.js';
 import type { ExploreRecord, ScanRecord } from './records.js';
@@ -21,11 +21,12 @@ import { reassembleDna, resolveLimits } from './scan.js';
 const MAX_SKIPPED_DETAILS = 40;
 
 /**
- * The `<pageId>:<nodePath>` keys of the controls an earlier run must not act on again: the keys it
- * persisted, or, for records written before it did, the controls whose attempt caused a side effect
- * or left the crawl (a navigation without a transition), and the targets of side-effect transitions.
- * A navigation that produced a transition between two crawled pages is not a side effect: it is
- * explored again. Keys are scoped to the page of the state the action started from.
+ * The keys of the actions an earlier run must not perform again: `<pageId>:<nodePath>` for a control,
+ * `<pageId>:key:<key>` for a page-level key press (no target). They are the keys the run persisted,
+ * or, for records written before it did, those of the attempts that caused a side effect or left the
+ * crawl (a navigation without a transition), plus the actions of side-effect transitions. A navigation
+ * that produced a transition between two crawled pages is not a side effect: it is explored again.
+ * Keys are scoped to the page of the state the action started from.
  */
 export function knownSideEffects(
   scan: Pick<ScanRecord, 'pageId'> & { readonly states: readonly Pick<ScanRecord['states'][number], 'stateId' | 'pageId'>[] },
@@ -34,18 +35,19 @@ export function knownSideEffects(
 ): Set<string> {
   const keys = new Set<string>(previous?.sideEffectKeys ?? []);
   const pageOf = new Map(scan.states.map((state) => [state.stateId, state.pageId ?? scan.pageId] as const));
-  const add = (stateId: string, nodePath: string | undefined): void => {
-    if (nodePath === undefined) return;
-    keys.add(effectKey(pageOf.get(stateId) ?? scan.pageId, nodePath));
+  const add = (stateId: string, action: Pick<Transition['action'], 'target' | 'key'>): void => {
+    const pageId = pageOf.get(stateId) ?? scan.pageId;
+    if (action.target !== null && action.target !== undefined) keys.add(effectKey(pageId, action.target.nodePath));
+    else if (action.key !== undefined) keys.add(keyPressEffectKey(pageId, action.key));
   };
   if (previous !== null && previous.sideEffectKeys === undefined) {
     for (const attempt of previous.attempted) {
       const leftCrawl = attempt.outcome === 'navigated' && attempt.transitionId === null;
-      if (attempt.outcome === 'side-effect' || leftCrawl) add(attempt.stateId, attempt.action.target?.nodePath);
+      if (attempt.outcome === 'side-effect' || leftCrawl) add(attempt.stateId, attempt.action);
     }
   }
   for (const transition of previousTransitions) {
-    if (transition.sideEffects) add(transition.from, transition.action.target?.nodePath);
+    if (transition.sideEffects) add(transition.from, transition.action);
   }
   return keys;
 }

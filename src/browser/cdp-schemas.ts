@@ -106,6 +106,14 @@ export const TargetInfoResultSchema = z.object({ targetInfo: z.object({ targetId
 /** Body of `<endpoint>/json/version`. */
 export const CdpVersionJsonSchema = z.object({ Browser: z.string().optional(), 'User-Agent': z.string().optional(), webSocketDebuggerUrl: z.string().optional() });
 
+/** Payload of the `Fetch.requestPaused` event (subset). A request without `networkId` is one the inspector does not track. */
+export const RequestPausedSchema = z.object({
+  requestId: z.string(),
+  request: z.object({ url: z.string(), method: z.string() }),
+  resourceType: z.string(),
+  networkId: z.string().optional(),
+});
+
 const BoxTuple = z.tuple([z.number(), z.number(), z.number(), z.number()]);
 const StyleRecord = z.record(z.string(), z.string());
 

@@ -19,6 +19,7 @@ import {
   matchDenyName,
   NAVIGATE_PRIORITY,
   pageLevelActions,
+  submitDenial,
   SYNTHETIC_VALUES,
   type NavigationOptions,
 } from './safe-policy.js';
@@ -634,6 +635,58 @@ describe('classifyForms', () => {
     const result = classifyForms(captured);
     expect(result.forms[0]?.fills.map((f) => f.node.id)).toEqual(['n4']);
     expect(fillReasons(result, 'n2')).toEqual(['fill: <select> has no option with a value']);
+  });
+
+  it('never takes an inherited object member for a value when the page names a control, a token or a type after one', () => {
+    const inherited = ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf'];
+    const captured = formState([
+      ...inherited.map((name): NodeInit => ({ tag: 'input', attrs: { type: 'text', name } })),
+      ...inherited.map((token): NodeInit => ({ tag: 'input', attrs: { type: 'text', id: `ac-${token}`, autocomplete: token } })),
+      ...inherited.map((type): NodeInit => ({ tag: 'input', attrs: { type, id: `ty-${type}` }, form: { valid: true, validationMessage: null, required: false, type, hasValue: false } })),
+      { tag: 'input', attrs: { type: 'text', id: 'constructor' } },
+      { tag: 'button', name: 'Go', attrs: { type: 'submit' } },
+    ]);
+    const variants: readonly Readonly<Record<string, string>>[] = [{}, { email: 'grace@example.org' }];
+    for (const formValues of variants) {
+      const result = classifyForms(captured, { formValues });
+      const fills = result.forms[0]?.fills ?? [];
+      // Every text control is filled with a built-in synthetic value; the unknown types are reported as not text-like.
+      expect(fills).toHaveLength(inherited.length * 2 + 1);
+      for (const fill of fills) {
+        expect(typeof fill.value, fill.node.id).toBe('string');
+        expect(fill.value, fill.node.id).toBe(SYNTHETIC_VALUES.text);
+        expect(fill.source, fill.node.id).not.toContain('formValues');
+        expect(fill.source, fill.node.id).not.toContain('autocomplete');
+      }
+      for (const type of inherited) {
+        const node = captured.nodes.find((n) => n.attrs.id === `ty-${type}`);
+        expect(fillReasons(result, node?.id ?? ''), type).toEqual([`fill: <input type="${type.toLowerCase()}"> is not a text-like control`]);
+      }
+    }
+    // A caller's own value under such a name is still honoured (an own property, a string).
+    const own = classifyForms(captured, { formValues: JSON.parse('{"__proto__":"proto value","constructor":"ctor value"}') as Record<string, string> });
+    const byName = (name: string) => own.forms[0]?.fills.find((f) => f.node.attrs.name === name);
+    expect(byName('__proto__')).toMatchObject({ value: 'proto value', source: 'formValues["__proto__"]' });
+    expect(byName('constructor')).toMatchObject({ value: 'ctor value', source: 'formValues["constructor"]' });
+    expect(own.forms[0]?.fills.find((f) => f.node.attrs.id === 'constructor')).toMatchObject({ value: 'ctor value', source: 'formValues["constructor"]' });
+    expect(byName('toString')).toMatchObject({ value: SYNTHETIC_VALUES.text });
+    // A non-string own value is ignored too.
+    const odd = classifyForms(captured, { formValues: JSON.parse('{"valueOf":42}') as Record<string, string> });
+    expect(odd.forms[0]?.fills.find((f) => f.node.attrs.name === 'valueOf')).toMatchObject({ value: SYNTHETIC_VALUES.text });
+  });
+
+  it('re-checks the deny list on a submit control or a form found again in a later state', () => {
+    const captured = formState([{ tag: 'input', attrs: { type: 'text', name: 'q' } }, { tag: 'button', name: 'Save', attrs: { type: 'submit', 'aria-label': 'Save' }, text: 'Save' }]);
+    const button = captured.nodes.find((n) => n.tag === 'button');
+    const form = captured.nodes.find((n) => n.tag === 'form');
+    if (!button || !form) throw new Error('builder');
+    expect(submitDenial(button, captured)).toBeNull();
+    expect(submitDenial({ ...button, text: 'Delete everything' }, captured)).toBe('delete');
+    expect(submitDenial({ ...button, name: 'Pay now' }, captured, ['pay'])).toBe('pay');
+    expect(submitDenial(form, captured)).toBeNull();
+    expect(submitDenial({ ...form, attrs: { ...form.attrs, 'aria-label': 'Checkout' } }, captured)).toBe('checkout');
+    // A form is judged by its own name, not by the text of everything inside it.
+    expect(submitDenial(form, formState([{ tag: 'p', interactive: false, text: 'Send me updates' }]))).toBeNull();
   });
 
   it('is deterministic, never mutates its input and yields nothing for a page without forms', () => {

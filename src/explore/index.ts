@@ -7,6 +7,6 @@
  * (`forms.ts`).
  */
 export * from './explorer.js';
-export { SUBMIT_SKIPPED_EARLIER } from './forms.js';
+export { SUBMIT_SKIPPED_EARLIER, TARGET_MOVED } from './forms.js';
 export { NAVIGATION_SKIPPED_EARLIER } from './navigation.js';
-export { effectKey, type ExplorePolicy, type PageCoverage } from './run.js';
+export { effectKey, keyPressEffectKey, type ExplorePolicy, type PageCoverage } from './run.js';

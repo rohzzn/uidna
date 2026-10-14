@@ -18,7 +18,7 @@ import type { WorkflowContext } from '../application/context.js';
 import type { ExploreRecord, ScanRecord, StateRecord } from '../application/records.js';
 import { openSession, pageKey } from '../application/scan.js';
 import { redactUrl } from '../browser/redact.js';
-import type { CapturedState } from '../browser/types.js';
+import type { CapturedState, UiAction } from '../browser/types.js';
 import type { BudgetTracker } from '../domain/budget.js';
 import { isoNow } from '../domain/clock.js';
 import { describeError, toError, uidnaError } from '../domain/errors.js';
@@ -40,6 +40,7 @@ import { runFormSequence } from './forms.js';
 import { performNavigation } from './navigation.js';
 import {
   actionOf,
+  attributeRevert,
   bodyOf,
   changedNodeIds,
   clip,
@@ -49,17 +50,20 @@ import {
   ensureBase,
   finishProbed,
   freshLoad,
-  hasSideEffect,
+  hasStepSideEffect,
   markSideEffect,
+  markStepSideEffect,
   noteCaptureLimitations,
   noteOnce,
   orReload,
   PROBE_STABILITY,
   quietly,
   recordAttempt,
+  recordUnperformedSideEffect,
   reloadRevert,
   report,
   resetDocument,
+  revertQuietly,
   revertUnchanged,
   settle,
   skippedRecord,
@@ -146,12 +150,12 @@ function planPageLevel(action: PageLevelAction): Planned {
   return { kind: 'key', node: null, key: action.key, describe: `key ${action.key}` };
 }
 
-function planForm(plan: FormPlan): FormSequence {
+function planForm(plan: FormPlan, capture: CapturedState): FormSequence {
   const via = plan.submitTarget.id === plan.form.id ? `submit ${describeNode(plan.form)}` : `submit ${describeNode(plan.form)} via ${describeNode(plan.submitTarget)}`;
   const fills: Planned[] = plan.fills.map((fill) => ({ kind: 'fill', node: fill.node, value: fill.value, describe: `fill ${describeNode(fill.node)} (${fill.source})` }));
   const emptySubmit: Planned = { kind: 'submit', node: plan.submitTarget, describe: `${via} (empty)` };
   const filledSubmit: Planned = { kind: 'submit', node: plan.submitTarget, describe: `${via} (filled)` };
-  return { form: plan.form, steps: fills.length === 0 ? [emptySubmit] : [emptySubmit, ...fills, filledSubmit] };
+  return { form: plan.form, steps: fills.length === 0 ? [emptySubmit] : [emptySubmit, ...fills, filledSubmit], capture };
 }
 
 /** What the planners need from a run. */
@@ -164,7 +168,7 @@ function plansFor(run: Planner, capture: CapturedState, base: StateRecord): Plan
   const planned = [...classified.candidates.map(planCandidate), ...pageLevelActions().map(planPageLevel)];
   if (run.policy !== 'forms') return { planned, forms: [], skipped: classified.skipped };
   const forms = classifyForms(capture, { denyNames: run.denyNames, formValues: run.formValues });
-  return { planned, forms: forms.forms.map(planForm), skipped: [...classified.skipped, ...forms.skipped] };
+  return { planned, forms: forms.forms.map((plan) => planForm(plan, capture)), skipped: [...classified.skipped, ...forms.skipped] };
 }
 
 /** Steps of one round. */
@@ -261,7 +265,9 @@ function recordEscapeTransition(run: Run, ref: Reference, node: UiNode, derived:
  * works), else a second click, else a fresh load. Side effects are always
  * reverted with a fresh load, and so is any action whose cheaper revert did
  * not restore the base, so `method` names what actually restored it and
- * `succeeded` is the digest comparison right after that method.
+ * `succeeded` is the digest comparison right after that method. A non-GET
+ * request a cheap revert causes (an Escape handler that saves, a blur that
+ * autosaves) is attributed to the action: it is never performed again.
  */
 async function revertChanged(run: Run, ref: Reference, planned: Planned, derived: { stateId: string; capture: CapturedState } | null, sideEffect: boolean): Promise<RevertOutcome> {
   if (sideEffect) {
@@ -270,30 +276,29 @@ async function revertChanged(run: Run, ref: Reference, planned: Planned, derived
     return outcome;
   }
   const finish = (method: RevertOutcome['method']): Promise<RevertOutcome> => compareBySnapshot(run, ref, method);
+  /** Perform the cheap revert, let the page settle, and attribute what it sent to the action. */
+  const cheap = async (actions: readonly UiAction[], revert: string, method: RevertOutcome['method']): Promise<{ after: RevertOutcome; network: { nonGet: number; total: number } }> => {
+    const marker = run.session.markNetwork();
+    for (const action of actions) await quietly(run, action);
+    const after = await finish(method);
+    return { after, network: attributeRevert(run, ref, planned, marker, revert) };
+  };
   switch (planned.kind) {
     case 'hover':
-      await quietly(run, { kind: 'reset-pointer' });
-      return orReload(run, ref, await finish('none'));
+      return orReload(run, ref, (await cheap([{ kind: 'reset-pointer' }], 'a pointer reset', 'none')).after);
     case 'focus':
-      await quietly(run, { kind: 'blur' });
-      return orReload(run, ref, await finish('none'));
+      return orReload(run, ref, (await cheap([{ kind: 'blur' }], 'a blur', 'none')).after);
     case 'key':
-      await quietly(run, { kind: 'key', key: 'Escape' });
-      await quietly(run, { kind: 'reset-pointer' });
-      await quietly(run, { kind: 'blur' });
-      return orReload(run, ref, await finish('escape'));
+      return orReload(run, ref, (await cheap([{ kind: 'key', key: 'Escape' }, { kind: 'reset-pointer' }, { kind: 'blur' }], 'Escape', 'escape')).after);
     case 'click': {
       const node = planned.node;
       if (node === null) return orReload(run, ref, await finish('none'));
       if (isDisclosureTrigger(node) || node.role === 'tab') {
-        const marker = run.session.markNetwork();
-        await quietly(run, { kind: 'key', key: 'Escape' });
-        const after = await finish('escape');
-        if (after.succeeded) {
-          if (derived !== null) recordEscapeTransition(run, ref, node, derived, isSideEffect(run.session.networkSince(marker)));
-          await quietly(run, { kind: 'reset-pointer' });
-          await quietly(run, { kind: 'blur' });
-          return after;
+        const escaped = await cheap([{ kind: 'key', key: 'Escape' }], 'Escape', 'escape');
+        if (escaped.after.succeeded) {
+          if (derived !== null) recordEscapeTransition(run, ref, node, derived, escaped.network);
+          await revertQuietly(run, ref, planned, [{ kind: 'reset-pointer' }, { kind: 'blur' }], 'a pointer reset and a blur');
+          return escaped.after;
         }
       }
       const toggleMarker = run.session.markNetwork();
@@ -309,8 +314,7 @@ async function revertChanged(run: Run, ref: Reference, planned: Planned, derived
       if (toggled.ok && toggled.value.performed && !toggled.value.navigated && toggleNetwork.nonGet === 0) {
         const after = await finish('toggle');
         if (after.succeeded) {
-          await quietly(run, { kind: 'reset-pointer' });
-          await quietly(run, { kind: 'blur' });
+          await revertQuietly(run, ref, planned, [{ kind: 'reset-pointer' }, { kind: 'blur' }], 'a pointer reset and a blur');
           return after;
         }
       }
@@ -331,7 +335,7 @@ async function performAction(run: Run, ref: Reference, planned: Planned): Promis
   const stateId = ref.stateId;
   const started = run.ctx.clock.now().getTime();
 
-  if (planned.node !== null && hasSideEffect(run, ref, planned.node)) {
+  if (hasStepSideEffect(run, ref, planned)) {
     run.skipped.push(skippedRecord(stateId, planned, bodyOf(ref.capture), 'side effect observed earlier'));
     return;
   }
@@ -354,20 +358,23 @@ async function performAction(run: Run, ref: Reference, planned: Planned): Promis
     run.limitations.push(`${planned.describe}: ${outcome.dialogs.length} dialog(s) opened and were dismissed (${outcome.dialogs.map(clip).join('; ')})`);
   }
   if (!outcome.performed) {
-    const navigation = unperformedNavigation(outcome);
-    if (navigation !== null) {
-      // The action left or tried to leave the document: a side effect that is recorded once and never repeated.
-      if (planned.node !== null) markSideEffect(run, ref, planned.node);
-      recordAttempt(run, stateId, planned, 'navigated', null, navigation, started);
-      run.unknowns.push(
-        outcome.blockedNavigation !== undefined
-          ? `${planned.describe} skipped: it navigates to ${outcome.blockedNavigation} (blocked; only links to crawled pages of the same origin are followed)`
-          : `${planned.describe} skipped: ${navigation}`,
-      );
-    } else {
-      recordAttempt(run, stateId, planned, 'failed', null, outcome.reason ?? 'action not performed', started);
+    // An action that sent non-GET requests is a side effect, whatever else it did.
+    if (!recordUnperformedSideEffect(run, ref, planned, outcome, isSideEffect(session.networkSince(marker)), started)) {
+      const navigation = unperformedNavigation(outcome);
+      if (navigation !== null) {
+        // The action left or tried to leave the document: a side effect that is recorded once and never repeated.
+        markStepSideEffect(run, ref, planned);
+        recordAttempt(run, stateId, planned, 'navigated', null, navigation, started);
+        run.unknowns.push(
+          outcome.blockedNavigation !== undefined
+            ? `${planned.describe} skipped: it navigates to ${outcome.blockedNavigation} (blocked; only links to crawled pages of the same origin are followed)`
+            : `${planned.describe} skipped: ${navigation}`,
+        );
+      } else {
+        recordAttempt(run, stateId, planned, 'failed', null, outcome.reason ?? 'action not performed', started);
+      }
     }
-    await revertUnchanged(run, planned);
+    await revertUnchanged(run, ref, planned);
     await ensureBase(run, ref, planned, null);
     return;
   }
@@ -376,7 +383,7 @@ async function performAction(run: Run, ref: Reference, planned: Planned): Promis
   const network = isSideEffect(session.networkSince(marker));
   // A navigation counts as a side effect like a non-GET request (schema: `sideEffects`); neither is ever repeated.
   const sideEffect = network.nonGet > 0 || outcome.navigated;
-  if (sideEffect && planned.node !== null) markSideEffect(run, ref, planned.node);
+  if (sideEffect) markStepSideEffect(run, ref, planned);
 
   if (outcome.navigated && stripHash(outcome.url) !== stripHash(ref.url)) {
     const destination = redactUrl(outcome.url);
@@ -394,7 +401,7 @@ async function performAction(run: Run, ref: Reference, planned: Planned): Promis
   const probed = await session.capture({ screenshotPath: probePath, assetDir: run.assetDir, maxHeight: 4000 });
   if (!probed.ok) {
     recordAttempt(run, stateId, planned, 'failed', null, `probe capture failed: ${describeError(probed.error)}`, started);
-    await revertUnchanged(run, planned);
+    await revertUnchanged(run, ref, planned);
     await finishProbed(run, ref, planned, null, null);
     return;
   }
@@ -406,7 +413,7 @@ async function performAction(run: Run, ref: Reference, planned: Planned): Promis
   if (!domChanged && !roleTreeChanged && !screenshotChanged && !sideEffect) {
     recordAttempt(run, stateId, planned, 'unchanged', null, null, started);
     await discardProbe(run, probePath);
-    await revertUnchanged(run, planned);
+    await revertUnchanged(run, ref, planned);
     await finishProbed(run, ref, planned, null, null);
     return;
   }
@@ -581,8 +588,6 @@ export async function exploreInteractions(input: ExploreInput): Promise<Result<E
   scan.budget = { limits: { ...budget.limits }, used: sumUsage(input.scan.budget.used, used) };
   scan.status = run.partial ? 'partial' : 'explored';
   scan.steps.explore = { at: finishedAt, evidenceId, recordPath: 'explore.json' };
-  const savedScan = await ctx.store.saveScan(scan);
-  if (!savedScan.ok) return savedScan;
 
   const record: ExploreRecord = {
     scanId: scan.scanId,
@@ -602,8 +607,12 @@ export async function exploreInteractions(input: ExploreInput): Promise<Result<E
     partial: run.partial,
     sideEffectKeys: [...new Set([...run.knownSideEffectKeys, ...run.sideEffectKeys])].sort(),
   };
+  // The explore record goes first: its side-effect keys are what keeps a later run from repeating an action
+  // that caused a side effect, so they are persisted even when the scan record cannot be. Both are attempted.
   const savedExplore = await ctx.store.saveExplore(scan.scanId, record);
+  const savedScan = await ctx.store.saveScan(scan);
   if (!savedExplore.ok) return savedExplore;
+  if (!savedScan.ok) return savedScan;
   return ok({ scan, record, transitions: run.transitions, captures: run.captures, newStateIds: [...run.newStateIds] });
 }
 

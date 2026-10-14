@@ -109,6 +109,30 @@ export class NetworkLedger {
     entry.failure = reason;
   }
 
+  /**
+   * Record a request UI DNA aborted that the page's request events never
+   * report: Playwright does not track the requests the inspector cannot
+   * attribute (the keepalive requests and beacons of an unloading document),
+   * so they have no `Request`. The entry is settled, keeps `status: null`
+   * and carries `reason` as its failure.
+   */
+  recordUntracked(request: { readonly method: string; readonly url: string; readonly resourceType: string }, reason: string): void {
+    this.entries.push({
+      id: `req_${this.entries.length + 1}`,
+      method: request.method,
+      url: redactUrl(request.url),
+      status: null,
+      resourceType: request.resourceType.toLowerCase(),
+      startedAt: this.clock.now().toISOString(),
+      startedMs: Date.now(),
+      durationMs: 0,
+      failure: reason,
+      settled: true,
+      documentStart: false,
+      blocked: true,
+    });
+  }
+
   /** Number of requests that have neither finished nor failed. */
   inFlight(): number {
     let count = 0;

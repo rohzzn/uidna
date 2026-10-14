@@ -25,6 +25,7 @@ import {
   PROBE_STABILITY,
   quietly,
   recordAttempt,
+  recordUnperformedSideEffect,
   reloadRevert,
   report,
   revertUnchanged,
@@ -88,16 +89,19 @@ export async function performNavigation(run: Run, ref: Reference, planned: Plann
     run.limitations.push(`${planned.describe}: ${outcome.dialogs.length} dialog(s) opened and were dismissed (${outcome.dialogs.map(clip).join('; ')})`);
   }
   if (!outcome.performed) {
-    const navigation = unperformedNavigation(outcome);
-    if (navigation !== null) {
-      // The browser refused the navigation (robots.txt, cross-origin redirect, a popup) or undid one that committed: recorded once, never repeated.
-      markSideEffect(run, ref, node);
-      recordAttempt(run, stateId, planned, 'navigated', null, navigation, started);
-      run.unknowns.push(`${planned.describe} skipped: ${outcome.reason ?? navigation}`);
-    } else {
-      recordAttempt(run, stateId, planned, 'failed', null, outcome.reason ?? 'action not performed', started);
+    // A click that sent non-GET requests is a side effect, whatever else it did.
+    if (!recordUnperformedSideEffect(run, ref, planned, outcome, isSideEffect(session.networkSince(marker)), started)) {
+      const navigation = unperformedNavigation(outcome);
+      if (navigation !== null) {
+        // The browser refused the navigation (robots.txt, cross-origin redirect, a popup) or undid one that committed: recorded once, never repeated.
+        markSideEffect(run, ref, node);
+        recordAttempt(run, stateId, planned, 'navigated', null, navigation, started);
+        run.unknowns.push(`${planned.describe} skipped: ${outcome.reason ?? navigation}`);
+      } else {
+        recordAttempt(run, stateId, planned, 'failed', null, outcome.reason ?? 'action not performed', started);
+      }
     }
-    await revertUnchanged(run, planned);
+    await revertUnchanged(run, ref, planned);
     await ensureBase(run, ref, planned, null);
     return;
   }
@@ -109,7 +113,7 @@ export async function performNavigation(run: Run, ref: Reference, planned: Plann
     const snapshot = await session.snapshot();
     if (snapshot.ok && sameAsReference(snapshot.value, ref) && network.nonGet === 0) {
       recordAttempt(run, stateId, planned, 'unchanged', null, 'the link did not navigate', started);
-      await revertUnchanged(run, planned);
+      await revertUnchanged(run, ref, planned);
       await finishProbed(run, ref, planned, snapshot.value, null);
       return;
     }
@@ -125,7 +129,7 @@ export async function performNavigation(run: Run, ref: Reference, planned: Plann
         : 'the link changed the page without navigating; link clicks are explored as navigations only, so no state was stored',
       started,
     );
-    await revertUnchanged(run, planned);
+    await revertUnchanged(run, ref, planned);
     await ensureBase(run, ref, planned, snapshot.ok ? snapshot.value : null);
     return;
   }
@@ -147,7 +151,14 @@ export async function performNavigation(run: Run, ref: Reference, planned: Plann
   const toBase = destinationBase(run, ref, toPageId);
   const toCapture = toBase === null ? undefined : run.captures.get(toBase.stateId);
   if (toBase === null || toCapture === undefined) {
-    recordAttempt(run, stateId, planned, 'navigated', null, `navigated to ${toPageId} (${destination}), which has no base state capture at ${ref.viewport.width}px`, started);
+    const where = `${toPageId} (${destination}), which has no base state capture at ${ref.viewport.width}px`;
+    if (network.nonGet > 0) {
+      // No transition can carry the side effect, so the attempt does: the link is never clicked again.
+      markSideEffect(run, ref, node);
+      recordAttempt(run, stateId, planned, 'side-effect', null, `navigated to ${where}, and caused ${network.nonGet} non-GET request(s)`, started);
+    } else {
+      recordAttempt(run, stateId, planned, 'navigated', null, `navigated to ${where}`, started);
+    }
     run.unknowns.push(`${planned.describe} navigated to ${toPageId} (${destination}), but that page has no base state capture at ${ref.viewport.width}px; no transition recorded`);
     const reverted = await reloadRevert(run, ref);
     await quietly(run, { kind: 'reset-pointer' });

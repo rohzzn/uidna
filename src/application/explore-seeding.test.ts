@@ -1,10 +1,11 @@
 /**
- * Which controls a later exploration run must not act on again: page-scoped
- * keys, persisted keys win, and a navigation between two crawled pages is not
- * a side effect.
+ * Which actions a later exploration run must not perform again: page-scoped
+ * keys for controls and for page-level key presses, persisted keys win, and a
+ * navigation between two crawled pages is not a side effect.
  */
 import { describe, expect, it } from 'vitest';
 import type { Action } from '@rohzzn/uidna-schema';
+import { keyPressEffectKey } from '../explore/index.js';
 import { knownSideEffects } from './explore-workflow.js';
 import type { AttemptedInteraction } from './records.js';
 
@@ -43,9 +44,24 @@ describe('knownSideEffects', () => {
     const keys = knownSideEffects(scan, null, [
       { from: 'st_02', sideEffects: true, action: click('1/0') },
       { from: 'st_01', sideEffects: false, action: click('1/1') },
-      { from: 'st_01', sideEffects: true, action: { type: 'key', target: null, key: 'Escape' } },
     ]);
     expect([...keys]).toEqual(['pg_02:1/0']);
+  });
+
+  it('remembers a page-level key press that caused a side effect under its key, scoped to the page it was pressed on', () => {
+    const keys = knownSideEffects(scan, null, [
+      { from: 'st_01', sideEffects: true, action: { type: 'key', target: null, key: 'Escape' } },
+      { from: 'st_02', sideEffects: true, action: { type: 'key', target: null, key: 'Tab' } },
+      { from: 'st_03', sideEffects: false, action: { type: 'key', target: null, key: 'Tab' } },
+    ]);
+    expect([...keys].sort()).toEqual([keyPressEffectKey('pg_01', 'Escape'), keyPressEffectKey('pg_02', 'Tab')]);
+    expect(keyPressEffectKey('pg_01', 'Escape')).toBe('pg_01:key:Escape');
+    // Records written before keys were persisted: the key press is derived from the side-effect attempt.
+    const fromAttempts = knownSideEffects(scan, { attempted: [{ ...attempt('st_03', '0/1', 'side-effect'), action: { type: 'key', target: null, key: 'Tab' } }] }, []);
+    expect([...fromAttempts]).toEqual(['pg_01:key:Tab']);
+    // A key press with a target is remembered by its target, like any control.
+    const targeted = knownSideEffects(scan, null, [{ from: 'st_02', sideEffects: true, action: { ...click('2/0'), type: 'key', key: 'Enter' } }]);
+    expect([...targeted]).toEqual(['pg_02:2/0']);
   });
 
   it('prefers the keys a record persisted over re-deriving them from its attempts', () => {

@@ -19,6 +19,7 @@ import { stableStringify } from '../domain/digest.js';
 import { describeError, toError } from '../domain/errors.js';
 import { stateId as makeStateId } from '../domain/ids.js';
 import { err, ok, tryCatch, type Result } from '../domain/result.js';
+import { isSideEffect } from '../domain/safe-policy.js';
 
 /** Exploration policy of a run. */
 export type ExplorePolicy = 'safe' | 'forms';
@@ -34,6 +35,13 @@ export const MAX_CHANGED_NODE_IDS = 500;
 
 /** Stability wait after an action, as the policy prescribes. */
 export const PROBE_STABILITY = { timeoutMs: 3000 } as const;
+/**
+ * Stability wait after a fill or submit of a form chain: the page must stay
+ * quiet for a second, so that what a debounced handler (an autosave, a
+ * validation request) does in reaction to the step happens before the step
+ * is observed and is attributed to it rather than to the next step.
+ */
+export const CHAIN_STABILITY = { timeoutMs: 4000, quietMs: 1000 } as const;
 /** Stability wait after a revert step (the DOM must only settle). */
 export const REVERT_STABILITY = { timeoutMs: 1500, quietMs: 100 } as const;
 /** Longest accessible name quoted in messages. */
@@ -56,6 +64,8 @@ export interface Planned {
 export interface FormSequence {
   readonly form: UiNode;
   readonly steps: readonly Planned[];
+  /** The capture the steps were planned from: their node paths are paths in it. */
+  readonly capture: CapturedState;
 }
 
 /** The base state the explorer compares every probe against. */
@@ -105,7 +115,7 @@ export interface Run {
   readonly limitations: string[];
   readonly unknowns: string[];
   readonly newStateIds: string[];
-  /** Keys (`<pageId>:<nodePath>`) of nodes whose action caused a side effect or a navigation in this run; never acted on again. */
+  /** Keys (`<pageId>:<nodePath>`, `<pageId>:key:<key>` for page-level key presses) of actions that caused a side effect or a navigation in this run; never performed again. */
   readonly sideEffectKeys: Set<string>;
   /** Keys or bare node paths from earlier runs (bare paths apply on every page). */
   readonly knownSideEffectKeys: ReadonlySet<string>;
@@ -292,10 +302,54 @@ export function markSideEffect(run: Run, ref: Reference, node: UiNode): void {
   run.sideEffectKeys.add(effectKey(ref.pageId, node.path));
 }
 
-/** Record one attempted step. */
-export function recordAttempt(run: Run, stateId: string, planned: Planned, outcome: AttemptedInteraction['outcome'], transitionId: string | null, reason: string | null, startedAt: number): void {
+/** Key under which a page-level key press (no target node) is remembered: page-scoped like a node's, never a node path. */
+export function keyPressEffectKey(pageId: string, key: string): string {
+  return effectKey(pageId, `key:${key}`);
+}
+
+/** True when the step's node, or for a page-level key press its key, caused a side effect or a navigation in this run or an earlier one. */
+export function hasStepSideEffect(run: Run, ref: Reference, planned: Planned): boolean {
+  if (planned.node !== null) return hasSideEffect(run, ref, planned.node);
+  if (planned.kind !== 'key' || planned.key === undefined) return false;
+  const key = keyPressEffectKey(ref.pageId, planned.key);
+  return run.sideEffectKeys.has(key) || run.knownSideEffectKeys.has(key);
+}
+
+/** Remember that the step (its node, or for a page-level key press its key) caused a side effect or a navigation. */
+export function markStepSideEffect(run: Run, ref: Reference, planned: Planned): void {
+  if (planned.node !== null) markSideEffect(run, ref, planned.node);
+  else if (planned.kind === 'key' && planned.key !== undefined) run.sideEffectKeys.add(keyPressEffectKey(ref.pageId, planned.key));
+}
+
+/** Record one attempted step; returns the record, which a later observation may still update. */
+export function recordAttempt(
+  run: Run,
+  stateId: string,
+  planned: Planned,
+  outcome: AttemptedInteraction['outcome'],
+  transitionId: string | null,
+  reason: string | null,
+  startedAt: number,
+): AttemptedInteraction {
   const now = run.ctx.clock.now().getTime();
-  run.attempted.push({ stateId, action: actionOf(planned), outcome, transitionId, reason, durationMs: Math.max(0, Math.round(now - startedAt)) });
+  const attempt: AttemptedInteraction = { stateId, action: actionOf(planned), outcome, transitionId, reason, durationMs: Math.max(0, Math.round(now - startedAt)) };
+  run.attempted.push(attempt);
+  return attempt;
+}
+
+/**
+ * Record an action the browser reports as not performed that still sent
+ * non-GET requests (a click that POSTs, then opens a popup UI DNA closes):
+ * a side effect, so the step's control or key is remembered and never acted
+ * on again. Returns false, recording nothing, when it sent none.
+ */
+export function recordUnperformedSideEffect(run: Run, ref: Reference, planned: Planned, outcome: ActionOutcome, network: { nonGet: number; total: number }, startedAt: number): boolean {
+  if (network.nonGet === 0) return false;
+  markStepSideEffect(run, ref, planned);
+  const why = (outcome.reason ?? unperformedNavigation(outcome) ?? 'the action was not performed').replace(/\.$/, '');
+  recordAttempt(run, ref.stateId, planned, 'side-effect', null, `${why}; it caused ${network.nonGet} non-GET request(s)`, startedAt);
+  run.unknowns.push(`${planned.describe} was not performed (${why}) but caused ${network.nonGet} non-GET request(s); it will not be performed again`);
+  return true;
 }
 
 /* --------------------------------------------------------- base states */
@@ -444,10 +498,43 @@ export async function finishProbed(run: Run, ref: Reference, planned: Planned, s
   await resetDocument(run, ref, planned);
 }
 
-/** Undo the incidental effects of an action that changed nothing (pointer position, focus). */
-export async function revertUnchanged(run: Run, planned: Planned): Promise<void> {
-  if (planned.kind === 'hover' || planned.kind === 'click' || planned.kind === 'navigate') await quietly(run, { kind: 'reset-pointer' });
-  if (planned.kind !== 'hover') await quietly(run, { kind: 'blur' });
+/**
+ * Attribute to the planned step the non-GET requests seen since `marker`,
+ * which a revert of it (Escape, blur, pointer reset) caused: the step's
+ * control, or page-level key, is remembered as side-effecting and a
+ * limitation names the revert. Returns the requests seen.
+ */
+export function attributeRevert(run: Run, ref: Reference, planned: Planned, marker: string, revert: string): { nonGet: number; total: number } {
+  const network = isSideEffect(run.session.networkSince(marker));
+  if (network.nonGet > 0) {
+    markStepSideEffect(run, ref, planned);
+    const what = planned.node === null ? 'key' : 'element';
+    run.limitations.push(`reverting ${planned.describe} with ${revert} caused ${network.nonGet} non-GET request(s); the ${what} will not be acted on again`);
+  }
+  return network;
+}
+
+/** Perform revert actions whose outcome is not observed (`quietly`) and attribute the non-GET requests they caused to the planned step (`attributeRevert`). */
+export async function revertQuietly(run: Run, ref: Reference, planned: Planned, actions: readonly UiAction[], revert: string): Promise<void> {
+  if (actions.length === 0) return;
+  const marker = run.session.markNetwork();
+  for (const action of actions) await quietly(run, action);
+  attributeRevert(run, ref, planned, marker, revert);
+}
+
+/** Undo the incidental effects of an action that changed nothing (pointer position, focus); what the revert sends is attributed to the action. */
+export async function revertUnchanged(run: Run, ref: Reference, planned: Planned): Promise<void> {
+  const actions: UiAction[] = [];
+  const labels: string[] = [];
+  if (planned.kind === 'hover' || planned.kind === 'click' || planned.kind === 'navigate') {
+    actions.push({ kind: 'reset-pointer' });
+    labels.push('a pointer reset');
+  }
+  if (planned.kind !== 'hover') {
+    actions.push({ kind: 'blur' });
+    labels.push('a blur');
+  }
+  await revertQuietly(run, ref, planned, actions, labels.join(' and '));
 }
 
 /* ------------------------------------------------------- derived states */
