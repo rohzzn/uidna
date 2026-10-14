@@ -10,7 +10,8 @@
  * server, and the HTML report groups the states per page. A copy of the
  * build whose manifest leaves a page out shows that only generated pages are
  * compared (the navigation to the left-out page is skipped); without a
- * manifest the routes fall back to the document, with a limitation.
+ * manifest, or with one generated from another scan, the routes fall back
+ * to the document, with a limitation.
  */
 import { cp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -312,6 +313,34 @@ describe('verifyReconstruction on Fixture D (three pages)', () => {
       );
       expect(report.visual).toHaveLength(3);
       expect(report.behavioral.map((b) => [b.transitionId, b.replayed])).toEqual([['tr_01', true]]);
+    },
+    300_000,
+  );
+
+  it(
+    'never trusts a manifest generated from another scan: its page ids may name other pages, so the routes come from the document',
+    async () => {
+      // Another scan of the same site that crawled Pricing before Features: its pg_02 is Pricing, its pg_03 is Features.
+      await rm(PARTIAL, { recursive: true, force: true });
+      await cp(join(PROJECT, 'dist'), join(PARTIAL, 'dist'), { recursive: true });
+      const manifest = JSON.parse(await readFile(join(PROJECT, MANIFEST_FILE), 'utf8')) as { scanId: string; pages: { pageId: string; route: string }[] };
+      expect(manifest.scanId).toBe(scanId);
+      const swap: Record<string, string> = { pg_02: 'pg_03', pg_03: 'pg_02' };
+      const otherScan = `${scanId}_other`;
+      await writeFile(join(PARTIAL, MANIFEST_FILE), JSON.stringify({ ...manifest, scanId: otherScan, pages: manifest.pages.map((p) => ({ ...p, pageId: swap[p.pageId] ?? p.pageId })) }), 'utf8');
+      const report = unwrap(
+        await verifyReconstruction({ ctx, scan, dna, outDir: PARTIAL, attempt: 5, previous: null, thresholds: DEFAULT_THRESHOLDS, build: false, label: 'manifest of another scan', evidenceId: 'ev_verify_multipage_5' }),
+        'attempt 5',
+      );
+      console.log('[verify multipage attempt 5]', summarize(report));
+      expect(report.limitations).toContain(
+        `${MANIFEST_FILE} of the generated project could not be used (${MANIFEST_FILE} was generated from scan ${otherScan}, not ${scanId}; page ids are numbered per scan, so its page ids may name other pages); page routes were derived from the document, so a page the generator left out (router "none", or a route pattern another page took) may be compared at a route that renders another page`,
+      );
+      // Every page is compared at its own route (the swapped manifest would have loaded Features at /pricing.html), and the navigation replays.
+      expect(report.visual).toHaveLength(3);
+      for (const visual of report.visual) expect(visual.pixels?.diffRatio ?? 1, `pixel diff in ${visual.stateId}`).toBeLessThan(0.05);
+      expect(report.behavioral.map((b) => [b.transitionId, b.replayed])).toEqual([['tr_01', true]]);
+      expect(report.limitations.join('\n')).not.toContain('was not generated');
     },
     300_000,
   );

@@ -506,7 +506,7 @@ describe('pages and routes', () => {
       ],
       files: [],
     };
-    const routes = unwrap(generatedRoutesFromManifest(manifest));
+    const routes = unwrap(generatedRoutesFromManifest(manifest, 'scan_x'));
     expect(routes.source).toBe('manifest');
     expect(routes.router).toBe('react-router');
     expect([...routes.routeByPageId]).toEqual([
@@ -516,17 +516,25 @@ describe('pages and routes', () => {
     // A page the generator left out (here pg_02: its pattern was taken, or router "none") is not generated.
     expect(pageNotGenerated(routes, 'pg_02')).toBe(true);
     expect(pageNotGenerated(routes, 'pg_03')).toBe(false);
-    const single = unwrap(generatedRoutesFromManifest({ router: 'none', pages: [{ pageId: 'pg_01', route: '/' }] }));
+    const single = unwrap(generatedRoutesFromManifest({ scanId: 'scan_x', router: 'none', pages: [{ pageId: 'pg_01', route: '/' }] }, 'scan_x'));
     expect(single.router).toBe('none');
     expect(pageNotGenerated(single, 'pg_02')).toBe(true);
-    // A manifest written before pages were recorded, or not a manifest at all, is refused with a tagged error.
-    for (const bad of [{ files: ['README.md'] }, { router: 'none', pages: [] }, null, 'text']) {
-      const refused = generatedRoutesFromManifest(bad);
+    // A manifest written before pages were recorded, one that names no scan, or not a manifest at all, is refused with a tagged error.
+    for (const bad of [{ scanId: 'scan_x', files: ['README.md'] }, { scanId: 'scan_x', router: 'none', pages: [] }, { router: 'none', pages: [{ pageId: 'pg_01', route: '/' }] }, null, 'text']) {
+      const refused = generatedRoutesFromManifest(bad, 'scan_x');
       expect(refused.ok).toBe(false);
       if (!refused.ok) {
         expect(refused.error._tag).toBe('validation');
-        expect(refused.error.message).toContain('uidna.generated.json lists no generated pages');
+        expect(refused.error.message).toContain('uidna.generated.json does not record the scan and pages it was generated from');
       }
+    }
+    // A manifest generated from another scan is refused even when it is well formed: page ids are numbered per scan in
+    // crawl order, so its pg_02 may be another page, and the pages it left out say nothing about this scan's pages.
+    const foreign = generatedRoutesFromManifest(manifest, 'scan_y');
+    expect(foreign.ok).toBe(false);
+    if (!foreign.ok) {
+      expect(foreign.error._tag).toBe('validation');
+      expect(foreign.error.message).toBe('uidna.generated.json was generated from scan scan_x, not scan_y; page ids are numbered per scan, so its page ids may name other pages');
     }
     // The fallback derives a route for every page of the document and never reports a page as not generated.
     const doc = sampleDocument();

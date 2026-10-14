@@ -291,10 +291,11 @@ async function loadState(run: Run, state: UiState, limitations: string[]): Promi
  * manifest the generator wrote (`uidna.generated.json`): the generator drops
  * a page whose route pattern another page took and, with router "none",
  * every page but the first, so only the manifest knows. Without a readable
- * manifest the routes are derived from the document (`pageRoute`) and a
- * limitation says so.
+ * manifest, or with one generated from another scan than `scanId` (its page
+ * ids may name other pages, see `generatedRoutesFromManifest`), the routes
+ * are derived from the document (`pageRoute`) and a limitation says so.
  */
-async function readGeneratedRoutes(outDir: string, dna: UiDnaDocument, limitations: string[]): Promise<GeneratedRoutes> {
+async function readGeneratedRoutes(outDir: string, dna: UiDnaDocument, scanId: string, limitations: string[]): Promise<GeneratedRoutes> {
   const path = join(outDir, MANIFEST_FILE);
   const fallback = 'page routes were derived from the document, so a page the generator left out (router "none", or a route pattern another page took) may be compared at a route that renders another page';
   let text: string;
@@ -309,7 +310,7 @@ async function readGeneratedRoutes(outDir: string, dna: UiDnaDocument, limitatio
     (): unknown => JSON.parse(text),
     (cause) => toError(cause, 'validation', `${MANIFEST_FILE} is not JSON`),
   );
-  const routes = json.ok ? generatedRoutesFromManifest(json.value) : json;
+  const routes = json.ok ? generatedRoutesFromManifest(json.value, scanId) : json;
   if (!routes.ok) {
     limitations.push(`${MANIFEST_FILE} of the generated project could not be used (${routes.error.message}); ${fallback}`);
     return generatedRoutesFromDocument(dna);
@@ -1318,7 +1319,7 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
   }
   if (selected.length === 0) return err(uidnaError('validation', `scan ${scan.scanId} has no base state to compare${options.viewportWidths === undefined ? '' : ' at the requested viewports'}`));
   // Only the pages the generator wrote have a route in the generated app; the others are reported, never loaded at a borrowed route.
-  const routes = await readGeneratedRoutes(outDir, dna, limitations);
+  const routes = await readGeneratedRoutes(outDir, dna, scan.scanId, limitations);
   const leftOut = new Map<string, string[]>();
   for (const state of selected) {
     if (pageNotGenerated(routes, state.pageId)) leftOut.set(state.pageId, [...(leftOut.get(state.pageId) ?? []), state.id]);
