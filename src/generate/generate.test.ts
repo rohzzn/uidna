@@ -304,7 +304,7 @@ describe('generateProject', () => {
     const manifest = JSON.parse(await read(outDir, MANIFEST_FILE)) as { router: string; pages: unknown[]; behaviorTests: { tests: number; skipped: number; deduplicated: string[] } };
     expect(manifest.router).toBe('none');
     expect(manifest.pages).toEqual([{ pageId: 'pg_01', name: 'Main', file: 'src/sections/Main.tsx', route: '/' }]);
-    expect(manifest.behaviorTests).toEqual({ tests: 3, skipped: 0, deduplicated: [] });
+    expect(manifest.behaviorTests).toEqual({ tests: 3, skipped: 0, deduplicated: [], notReplayed: [] });
   });
 
   it('documents components, placeholders, behaviors and the verification aid in the README', async () => {
@@ -665,19 +665,20 @@ describe('multi-page document with a validated form, a data asset and behavior t
     expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/0/2/0/1\\"]")).toHaveAttribute("aria-invalid", "true");');
     expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/0/2/0/2\\"]")).toBeVisible();');
     expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/0/2/0/2\\"]")).toHaveText("Enter your full name.");');
-    // The filled submit replays the fills recorded on the way to its from-state before submitting.
-    expect(spec).toContain('const setup02 = await locate(page, "textbox", "Email", 0, "1/0/2/1/1");\n    await setup02.fill("ada@example.com");');
-    expect(spec).toContain('await expect(page.locator("[data-uidna-path=\\"1/0/2/3\\"]")).toHaveText("Could not reach the server.");');
+    // The filled submit sent a (blocked) POST when it was observed: like the verifier, the suite never replays it.
+    expect(spec).toContain('test.skip("tr_05: submit button \\"Create account\\" at 1/0/2/2/0: not replayed", async () => {');
+    expect(spec).toContain('// Reason: the action caused a side effect when it was observed (a non-GET request); UI DNA never repeats it.');
+    expect(spec).not.toContain('Could not reach the server.');
     expect(spec).toContain('test.skip("tr_06: key Tab link \\"Lumen\\" at 0/0/0: not reproduced", async () => {');
     expect(spec).toContain('// key transitions are only reproduced as Escape reverts of an implemented click');
-    expect(spec.match(/\n {2}test\(/g)).toHaveLength(5);
+    expect(spec.match(/\n {2}test\(/g)).toHaveLength(4);
     const manifest = JSON.parse(await read(outDir, MANIFEST_FILE)) as { router: string; pages: unknown[]; behaviorTests: unknown };
     expect(manifest.router).toBe('react-router');
     expect(manifest.pages).toEqual([
       { pageId: 'pg_01', name: 'Home', file: 'src/pages/Home.tsx', route: '/' },
       { pageId: 'pg_02', name: 'Features', file: 'src/pages/Features.tsx', route: '/features.html' },
     ]);
-    expect(manifest.behaviorTests).toEqual({ tests: 5, skipped: 1, deduplicated: [] });
+    expect(manifest.behaviorTests).toEqual({ tests: 4, skipped: 2, deduplicated: [], notReplayed: ['tr_05'] });
   });
 
   it('documents pages, routes, the shared layout, forms, mocks and the tests in the README', async () => {
@@ -691,7 +692,7 @@ describe('multi-page document with a validated form, a data asset and behavior t
     expect(readme).toContain('- `error01`: input "name" at 1/0/2/0/1 → "Enter your full name."');
     expect(readme).toContain('- `submitted01`: changes observed after a valid submit (status message); backend call not reproduced');
     expect(readme).toContain('- `itemsJson` in `src/mocks/itemsJson.ts`: JSON response observed during the scan (GET http://127.0.0.1:4173/api/items.json)');
-    expect(readme).toContain('`tests/behavior.spec.ts` replays 5 implemented transitions with Playwright');
+    expect(readme).toContain('`tests/behavior.spec.ts` replays 4 implemented transitions with Playwright (one test per target, action and viewport) and skips 1 that the generator did not reproduce and `tr_05`, which caused a side effect when it was observed and is never replayed, each with its reason.');
     expect(readme).toContain('`tr_06` key Tab on link "Lumen" at 0/0/0: key transitions are only reproduced as Escape reverts');
     expect(readme).toContain('npm run test:behavior');
   });

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { UiNode } from '@rohzzn/uidna-schema';
 import { buildFixtureACapture, findNode, findNodes } from '../analysis/testing.js';
+import { pageKey } from '../application/scan.js';
 import type { CapturedState, NetworkEntry } from '../browser/types.js';
 import {
   CLICK_BUTTON_PRIORITY,
   CLICK_DISCLOSURE_PRIORITY,
   CLICK_OTHER_PRIORITY,
+  classifyForms,
   classifyInteractions,
   clickExclusion,
   DEFAULT_DENY_NAMES,
@@ -13,8 +15,12 @@ import {
   HOVER_PRIORITY,
   isDisclosureTrigger,
   isSideEffect,
+  linkTarget,
   matchDenyName,
+  NAVIGATE_PRIORITY,
   pageLevelActions,
+  SYNTHETIC_VALUES,
+  type NavigationOptions,
 } from './safe-policy.js';
 
 /* ------------------------------------------------------------- builders */
@@ -383,5 +389,259 @@ describe('pageLevelActions and isSideEffect', () => {
     expect(isSideEffect([])).toEqual({ nonGet: 0, total: 0 });
     expect(isSideEffect([entry('GET', 'a'), entry('get', 'b'), entry('HEAD', 'c'), entry('options', 'd')])).toEqual({ nonGet: 0, total: 4 });
     expect(isSideEffect([entry('GET', 'a'), entry('POST', 'b'), entry('put', 'c'), entry('DELETE', 'd'), entry('PATCH', 'e')])).toEqual({ nonGet: 4, total: 5 });
+  });
+});
+
+/* ------------------------------------------------------------ navigation */
+
+const PAGE_URL = 'http://127.0.0.1:4173/';
+
+function navigationOptions(pageId = 'pg_01'): NavigationOptions {
+  return {
+    pageUrl: PAGE_URL,
+    pageId,
+    pagesByKey: new Map([
+      [pageKey(PAGE_URL), 'pg_01'],
+      [pageKey(`${PAGE_URL}features.html`), 'pg_02'],
+      [pageKey(`${PAGE_URL}pricing.html`), 'pg_03'],
+    ]),
+    keyOf: pageKey,
+  };
+}
+
+describe('classifyInteractions with crawled pages', () => {
+  const links: NodeInit[] = [
+    { tag: 'button', attrs: { type: 'button' }, name: 'Menu' },
+    { tag: 'a', role: 'link', name: 'Features', attrs: { href: '/features.html' } },
+    { tag: 'a', role: 'link', name: 'Plans', attrs: { href: 'pricing.html#plans' } },
+    { tag: 'a', role: 'link', name: 'Home', attrs: { href: '/' } },
+    { tag: 'a', role: 'link', name: 'Status', attrs: { href: 'https://example.com/' } },
+    { tag: 'a', role: 'link', name: 'About', attrs: { href: '/about.html' } },
+    { tag: 'a', role: 'link', name: 'Top', attrs: { href: '#top' } },
+    { tag: 'a', role: 'link', name: 'Pay now', attrs: { href: '/pricing.html' } },
+    { tag: 'a', role: 'link', name: 'Mail', attrs: { href: 'mailto:ada@example.com' } },
+    { tag: 'a', role: 'link', name: 'Inside', attrs: { href: '/features.html' }, inForm: true },
+  ];
+
+  it('turns links to other crawled pages into navigate candidates, after clicks and before hovers', () => {
+    const result = classifyInteractions(state(links), { navigation: navigationOptions() });
+    expect(result.candidates.slice(0, 3).map((c) => `${c.kind}:${c.node.id}`)).toEqual(['click:n1', 'navigate:n2', 'navigate:n3']);
+    expect(result.candidates.find((c) => c.kind === 'navigate' && c.node.id === 'n2')).toMatchObject({ priority: NAVIGATE_PRIORITY, navigation: { toPageId: 'pg_02', url: 'http://127.0.0.1:4173/features.html' } });
+    expect(result.candidates.find((c) => c.kind === 'navigate' && c.node.id === 'n3')?.navigation).toEqual({ toPageId: 'pg_03', url: 'http://127.0.0.1:4173/pricing.html' });
+    expect(result.candidates.filter((c) => c.kind === 'navigate')).toHaveLength(2);
+    expect(result.candidates[3]?.kind).toBe('hover');
+    for (const id of ['n2', 'n3']) expect(skippedReasons(result, id)).toEqual([]);
+    expect(skippedReasons(result, 'n4')).toEqual(['click: link navigates to the current page']);
+    expect(skippedReasons(result, 'n5')).toEqual(['click: link navigates to another origin']);
+    expect(skippedReasons(result, 'n6')).toEqual(['click: link navigates to an uncrawled page']);
+    expect(skippedReasons(result, 'n7')).toEqual(['click: fragment link: scroll only']);
+    expect(skippedReasons(result, 'n8')).toEqual(['click: denied name: pay']);
+    expect(skippedReasons(result, 'n9')).toEqual(['click: link navigates to a mailto: URL']);
+    expect(skippedReasons(result, 'n10')).toEqual(['click: inside a form']);
+    for (let i = 2; i <= 10; i += 1) expect(kindsOf(result, `n${i}`)).toEqual(expect.arrayContaining(['hover', 'focus']));
+    expect(CLICK_OTHER_PRIORITY < NAVIGATE_PRIORITY && NAVIGATE_PRIORITY < HOVER_PRIORITY).toBe(true);
+  });
+
+  it('without crawled pages every link stays an excluded click, exactly as before', () => {
+    const result = classifyInteractions(state(links));
+    expect(result.candidates.filter((c) => c.kind === 'navigate')).toEqual([]);
+    for (const id of ['n2', 'n3', 'n4', 'n5', 'n6', 'n8', 'n9']) expect(skippedReasons(result, id)).toEqual(['click: link navigates']);
+  });
+
+  it('resolves link targets, and clickExclusion allows a crawled link only when the pages are given', () => {
+    const features = node({ tag: 'a', role: 'link', name: 'Features', attrs: { href: '/features.html' } }, 1);
+    expect(linkTarget(features, navigationOptions())).toEqual({ kind: 'navigate', toPageId: 'pg_02', url: 'http://127.0.0.1:4173/features.html' });
+    expect(linkTarget(features, navigationOptions('pg_02'))).toEqual({ kind: 'excluded', reason: 'link navigates to the current page' });
+    expect(linkTarget(node({ tag: 'button' }, 1), navigationOptions())).toBeNull();
+    expect(linkTarget(node({ tag: 'a', attrs: { href: '#x' } }, 1), navigationOptions())).toBeNull();
+    expect(linkTarget(node({ tag: 'a', attrs: { href: 'http://127.0.0.1:4173/pricing.html' }, name: null, text: null }, 1), navigationOptions(), DEFAULT_DENY_NAMES, 'Buy now')).toEqual({
+      kind: 'excluded',
+      reason: 'denied name: buy',
+    });
+    expect(clickExclusion(features)).toBe('link navigates');
+    expect(clickExclusion(features, DEFAULT_DENY_NAMES, null, navigationOptions())).toBeNull();
+    expect(clickExclusion(features, DEFAULT_DENY_NAMES, null, navigationOptions('pg_02'))).toBe('link navigates to the current page');
+  });
+});
+
+/* ----------------------------------------------------------------- forms */
+
+/** A body holding a `<form>` (n1) whose children are `controls`, followed by `outside` nodes. */
+function formState(controls: readonly NodeInit[], outside: readonly NodeInit[] = [], formInit: NodeInit = { tag: 'form' }): CapturedState {
+  const captured = state([{ interactive: false, attrs: { id: 'f' }, ...formInit }, ...controls.map((c) => ({ inForm: true, ...c })), ...outside]);
+  const body = captured.nodes[0];
+  const form = captured.nodes[1];
+  if (!body || !form) throw new Error('builder');
+  const children = captured.nodes.slice(2, 2 + controls.length);
+  form.childIds = children.map((n) => n.id);
+  children.forEach((child, i) => {
+    child.parentId = form.id;
+    child.depth = 2;
+    child.path = `0/${i}`;
+  });
+  body.childIds = [form.id, ...captured.nodes.slice(2 + controls.length).map((n) => n.id)];
+  return captured;
+}
+
+/** Move `optionIds` under the select node `selectId`. */
+function withOptions(captured: CapturedState, selectId: string, optionIds: string[]): CapturedState {
+  const select = captured.nodes.find((n) => n.id === selectId);
+  const form = captured.nodes.find((n) => n.id === select?.parentId);
+  if (!select || !form) throw new Error('builder');
+  select.childIds = optionIds;
+  form.childIds = form.childIds.filter((id) => !optionIds.includes(id));
+  for (const option of captured.nodes.filter((n) => optionIds.includes(n.id))) option.parentId = select.id;
+  return captured;
+}
+
+function fillReasons(result: ReturnType<typeof classifyForms>, nodeId: string): string[] {
+  return result.skipped.filter((s) => s.node.id === nodeId).map((s) => s.reason);
+}
+
+describe('classifyForms', () => {
+  const signup = (): CapturedState =>
+    withOptions(
+      formState(
+        [
+          { tag: 'input', role: 'textbox', name: 'Full name', attrs: { type: 'text', name: 'name', autocomplete: 'name', required: '' } },
+          { tag: 'input', role: 'textbox', name: 'Email', attrs: { type: 'email', name: 'email' } },
+          { tag: 'input', attrs: { type: 'password', name: 'password', autocomplete: 'new-password' } },
+          { tag: 'input', attrs: { type: 'tel', name: 'phone' } },
+          { tag: 'input', attrs: { type: 'url', name: 'site' } },
+          { tag: 'input', attrs: { type: 'number', name: 'seats' } },
+          { tag: 'input', attrs: { type: 'date', name: 'start' } },
+          { tag: 'input', attrs: { type: 'search', name: 'q' } },
+          { tag: 'input', attrs: { type: 'text', name: 'username' } },
+          { tag: 'input', attrs: { type: 'text', name: 'company' } },
+          { tag: 'input', attrs: { type: 'text', id: 'first-name' } },
+          { tag: 'textarea', attrs: { name: 'bio' } },
+          { tag: 'select', attrs: { name: 'plan' } },
+          { tag: 'option', interactive: false, attrs: { value: '' }, text: 'Choose' },
+          { tag: 'option', interactive: false, attrs: { value: 'pro' }, text: 'Pro' },
+          { tag: 'option', interactive: false, attrs: { value: 'team' }, text: 'Team' },
+          { tag: 'input', attrs: { type: 'checkbox', name: 'terms', required: '' } },
+          { tag: 'input', attrs: { type: 'checkbox', name: 'newsletter' } },
+          { tag: 'input', attrs: { type: 'radio', name: 'size', value: 's', required: '' } },
+          { tag: 'input', attrs: { type: 'radio', name: 'size', value: 'l' } },
+          { tag: 'input', attrs: { type: 'radio', name: 'color', value: 'red' } },
+          { tag: 'input', interactive: false, visible: false, box: null, attrs: { type: 'hidden', name: 'token' } },
+          { tag: 'input', attrs: { type: 'file', name: 'avatar' } },
+          { tag: 'input', attrs: { type: 'text', name: 'locked', disabled: '' } },
+          { tag: 'input', attrs: { type: 'text', name: 'fixed', readonly: '' } },
+          { tag: 'input', attrs: { type: 'color', name: 'tint' } },
+          { tag: 'input', visible: false, box: null, attrs: { type: 'text', name: 'later' } },
+          { tag: 'button', role: 'button', name: 'Create account', attrs: { type: 'submit' } },
+          { tag: 'button', role: 'button', name: 'Fill example', attrs: { type: 'button' } },
+          { tag: 'input', attrs: { type: 'submit', value: 'Go' } },
+        ],
+        [{ tag: 'input', attrs: { type: 'text', name: 'search' } }, { tag: 'button', attrs: { type: 'button' }, name: 'Reload' }],
+      ),
+      'n14',
+      ['n15', 'n16', 'n17'],
+    );
+
+  it('picks the first enabled submit control and one synthetic value per fillable control, in document order', () => {
+    const result = classifyForms(signup());
+    expect(result.forms).toHaveLength(1);
+    const plan = result.forms[0];
+    if (!plan) return;
+    expect(plan.form.id).toBe('n1');
+    expect(plan.submitTarget.name).toBe('Create account');
+    expect(plan.fills.map((f) => [f.node.id, f.value])).toEqual([
+      ['n2', SYNTHETIC_VALUES.name],
+      ['n3', SYNTHETIC_VALUES.email],
+      ['n4', SYNTHETIC_VALUES.password],
+      ['n5', SYNTHETIC_VALUES.tel],
+      ['n6', SYNTHETIC_VALUES.url],
+      ['n7', SYNTHETIC_VALUES.number],
+      ['n8', SYNTHETIC_VALUES.date],
+      ['n9', SYNTHETIC_VALUES.text],
+      ['n10', SYNTHETIC_VALUES.text],
+      ['n11', SYNTHETIC_VALUES.text],
+      ['n12', SYNTHETIC_VALUES.name],
+      ['n13', SYNTHETIC_VALUES.textarea],
+      ['n14', 'pro'],
+      ['n18', SYNTHETIC_VALUES.checked],
+      ['n20', SYNTHETIC_VALUES.checked],
+    ]);
+    expect(plan.fills.find((f) => f.node.id === 'n2')?.source).toBe('autocomplete name');
+    expect(plan.fills.find((f) => f.node.id === 'n3')?.source).toBe('type email');
+    expect(plan.fills.find((f) => f.node.id === 'n12')?.source).toBe('name looks like a person name field');
+    expect(plan.fills.find((f) => f.node.id === 'n14')?.source).toBe('first option with a value');
+    expect(plan.fills.find((f) => f.node.id === 'n20')?.source).toBe('first button of a required radio group');
+  });
+
+  it('reports every control it leaves alone with the reason', () => {
+    const result = classifyForms(signup());
+    expect(fillReasons(result, 'n19')).toEqual(['fill: optional checkbox left as is']);
+    expect(fillReasons(result, 'n21')).toEqual(['fill: radio group "size" is checked through its first button']);
+    expect(fillReasons(result, 'n22')).toEqual(['fill: optional radio left as is']);
+    expect(fillReasons(result, 'n23')).toEqual(['fill: hidden inputs are never filled']);
+    expect(fillReasons(result, 'n24')).toEqual(['fill: file inputs are never filled: UI DNA does not upload files']);
+    expect(fillReasons(result, 'n25')).toEqual(['fill: disabled']);
+    expect(fillReasons(result, 'n26')).toEqual(['fill: read-only']);
+    expect(fillReasons(result, 'n27')).toEqual(['fill: <input type="color"> is not a text-like control']);
+    expect(fillReasons(result, 'n28')).toEqual(['fill: not visible']);
+    expect(fillReasons(result, 'n32')).toEqual(['fill: not inside a <form>']);
+    for (const id of ['n29', 'n30', 'n31', 'n33']) expect(fillReasons(result, id)).toEqual([]);
+    expect(result.skipped.every((s) => s.reason.startsWith(`${s.kind}: `))).toBe(true);
+    expect(result.skipped).toHaveLength(10);
+  });
+
+  it("prefers the caller's synthetic values by control name or id", () => {
+    const result = classifyForms(signup(), { formValues: { email: 'grace@example.org', 'first-name': 'Grace', plan: 'team', terms: 'false' } });
+    const plan = result.forms[0];
+    const value = (id: string) => plan?.fills.find((f) => f.node.id === id);
+    expect(value('n3')).toMatchObject({ value: 'grace@example.org', source: 'formValues["email"]' });
+    expect(value('n12')).toMatchObject({ value: 'Grace', source: 'formValues["first-name"]' });
+    expect(value('n14')).toMatchObject({ value: 'team', source: 'formValues["plan"]' });
+    expect(value('n18')).toMatchObject({ value: 'false', source: 'formValues["terms"]' });
+    expect(value('n2')?.value).toBe(SYNTHETIC_VALUES.name);
+  });
+
+  it('never submits a form whose only submit controls carry a denied name, and does not fill it either', () => {
+    const result = classifyForms(formState([{ tag: 'input', attrs: { type: 'text', name: 'card' } }, { tag: 'button', name: 'Pay now', attrs: { type: 'submit' } }]));
+    expect(result.forms).toEqual([]);
+    expect(fillReasons(result, 'n3')).toEqual(['submit: denied name: pay']);
+    expect(fillReasons(result, 'n2')).toEqual(['fill: its form is never submitted (denied name: pay), so it is not filled']);
+    const named = classifyForms(formState([{ tag: 'input', attrs: { type: 'text', name: 'x' } }, { tag: 'button', name: 'Continue', attrs: { type: 'submit' } }], [], { tag: 'form', name: 'Checkout', attrs: { id: 'f' } }));
+    expect(named.forms).toEqual([]);
+    expect(fillReasons(named, 'n1')).toEqual(['submit: denied name: checkout']);
+    expect(fillReasons(named, 'n2')).toEqual(['fill: its form is never submitted (denied name: checkout), so it is not filled']);
+    const denied = classifyForms(formState([{ tag: 'button', name: 'Archive', attrs: { type: 'submit' } }]), { denyNames: ['archive'] });
+    expect(denied.forms).toEqual([]);
+    expect(fillReasons(denied, 'n2')).toEqual(['submit: denied name: archive']);
+  });
+
+  it('submits through the first allowed submit control, a default-type button, or the form itself', () => {
+    const second = classifyForms(formState([{ tag: 'button', name: 'Pay now', attrs: { type: 'submit' } }, { tag: 'button', name: 'Save draft', attrs: { type: 'submit' } }]));
+    expect(second.forms[0]?.submitTarget.name).toBe('Save draft');
+    const untyped = classifyForms(formState([{ tag: 'button', name: 'Go', attrs: {} }, { tag: 'button', name: 'Other', attrs: { type: 'button' } }]));
+    expect(untyped.forms[0]?.submitTarget.name).toBe('Go');
+    const none = classifyForms(formState([{ tag: 'input', attrs: { type: 'text', name: 'q' } }]));
+    expect(none.forms[0]?.submitTarget.id).toBe('n1');
+    expect(none.forms[0]?.fills.map((f) => f.node.id)).toEqual(['n2']);
+    const disabled = classifyForms(formState([{ tag: 'input', attrs: { type: 'text', name: 'q' } }, { tag: 'button', name: 'Go', attrs: { type: 'submit', disabled: '' } }]));
+    expect(disabled.forms).toEqual([]);
+    expect(fillReasons(disabled, 'n1')).toEqual(['submit: every submit control is disabled']);
+    const hiddenSubmit = classifyForms(formState([{ tag: 'button', name: 'Hidden', attrs: { type: 'submit' }, visible: false, box: null }, { tag: 'button', name: 'Shown', attrs: { type: 'submit' } }]));
+    expect(hiddenSubmit.forms[0]?.submitTarget.name).toBe('Shown');
+  });
+
+  it('associates a control with the form its `form` attribute names and ignores selects without a usable option', () => {
+    const captured = formState([{ tag: 'select', attrs: { name: 'empty' } }, { tag: 'option', interactive: false, attrs: { value: '' }, text: '' }], [{ tag: 'input', attrs: { type: 'text', name: 'outside', form: 'f' } }]);
+    withOptions(captured, 'n2', ['n3']);
+    const result = classifyForms(captured);
+    expect(result.forms[0]?.fills.map((f) => f.node.id)).toEqual(['n4']);
+    expect(fillReasons(result, 'n2')).toEqual(['fill: <select> has no option with a value']);
+  });
+
+  it('is deterministic, never mutates its input and yields nothing for a page without forms', () => {
+    const input = signup();
+    const before = JSON.stringify(input);
+    const first = JSON.stringify(classifyForms(input));
+    expect(JSON.stringify(input)).toBe(before);
+    expect(JSON.stringify(classifyForms(signup()))).toBe(first);
+    expect(classifyForms(state([{ tag: 'button', attrs: { type: 'button' } }]))).toEqual({ forms: [], skipped: [] });
   });
 });

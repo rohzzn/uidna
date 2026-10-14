@@ -45,7 +45,7 @@ export async function verifyReconstruction(
   const thresholds = { ...DEFAULT_THRESHOLDS, ...(input.thresholds ?? {}) };
   const evidence = await ctx.ledger.record({
     kind: 'verify',
-    inputs: { scanId: input.scanId, outDir, attempt, label: input.label ?? null, thresholds, build: input.build ?? true, viewports: input.viewports },
+    inputs: { scanId: input.scanId, outDir, attempt, label: input.label ?? null, thresholds, build: input.build ?? true, viewports: input.viewports, runGeneratedTests: input.runGeneratedTests ?? false },
     scanId: input.scanId,
   });
   const report = await runVerifier({
@@ -59,6 +59,7 @@ export async function verifyReconstruction(
     build: input.build ?? true,
     label: input.label ?? null,
     evidenceId: evidence.id,
+    runGeneratedTests: input.runGeneratedTests ?? false,
     ...(input.viewports === undefined ? {} : { viewportWidths: input.viewports }),
   });
   if (!report.ok) return report;

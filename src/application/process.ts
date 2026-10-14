@@ -35,6 +35,19 @@ export interface RunCommandOptions {
   readonly maxBufferBytes?: number;
 }
 
+/** Kill a child and its descendants (npm spawns the real work in grandchildren; on Windows `kill()` leaves them running). */
+function killTree(child: ReturnType<typeof spawn>): void {
+  if (process.platform === 'win32' && child.pid !== undefined) {
+    try {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => undefined);
+      return;
+    } catch {
+      // fall through to a plain kill
+    }
+  }
+  child.kill();
+}
+
 /** The npm executable for this platform (only used when `npm-cli.js` cannot be located). */
 export function npmExecutable(): string {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -99,12 +112,12 @@ export async function runCommand(command: string, args: readonly string[], optio
         ? null
         : setTimeout(() => {
             timedOut = true;
-            child.kill();
+            killTree(child);
             setTimeout(() => child.kill('SIGKILL'), 2000).unref();
           }, options.timeoutMs);
 
     const onAbort = (): void => {
-      child.kill();
+      killTree(child);
     };
     options.signal?.addEventListener('abort', onAbort, { once: true });
 

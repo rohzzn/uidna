@@ -41,7 +41,7 @@ export function viewportFromWidth(width: number): { width: number; height: numbe
 export const BudgetInputSchema = z
   .object({
     timeMs: z.number().int().positive().nullable().optional().describe('Wall-clock limit in ms; null = unlimited.'),
-    pages: z.number().int().positive().nullable().optional().describe('Pages that may be loaded; Phase 1 uses 1.'),
+    pages: z.number().int().positive().nullable().optional().describe('Pages that may be loaded. Default: crawl.maxPages (1 without a crawl).'),
     actions: z.number().int().positive().nullable().optional().describe('Interactions the explorer may perform.'),
     resources: z.number().int().positive().nullable().optional().describe('Resources (assets, requests) that may be recorded.'),
   })
@@ -175,7 +175,7 @@ export const exploreInteractions = defineTool({
   name: 'explore_interactions',
   title: 'Explore interactions',
   description:
-    'Try safe interactions on the captured base states (hover, focus, Escape, Tab, clicks on non-submitting buttons, summaries, tabs, disclosure and menu triggers). Records a new state and a transition for every action that changed the page, reverts after each one, and lists every skipped interaction with its reason. Never submits forms, never follows links (every document navigation an action requests is blocked), and never repeats an action that caused a non-GET request or a navigation, in this run or a later run of the same scan. Coverage counts: discovered = visible interactive elements, explored = interactions attempted (including ones the browser refused, listed in explore.json), changed = new states.',
+    'Try safe interactions on the captured base states of every crawled page (hover, focus, Escape, Tab, clicks on non-submitting buttons, summaries, tabs, disclosure and menu triggers). Records a new state and a transition for every action that changed the page, reverts after each one, and lists every skipped interaction with its reason. Same-origin links to another crawled page are clicked once and recorded as navigation transitions between pages; every other document navigation an action requests is blocked. The safe policy never touches forms; the forms policy also fills each form with synthetic values (never real credentials) and submits it empty and filled to observe validation, with every non-GET request blocked. An action that caused a side effect (a non-GET request, or a navigation off the crawl) is never repeated, in this run or a later run of the same scan. Coverage counts, in total and per page: discovered = visible interactive elements, explored = interactions attempted (including ones the browser refused, listed in explore.json), changed = new states.',
   shape: 'capture',
   input: z.object({
     scanId: ScanIdSchema,
@@ -461,7 +461,7 @@ export const verifyReconstruction = defineTool({
   name: 'verify_reconstruction',
   title: 'Verify reconstruction',
   description:
-    'Build and serve the generated project, render every base state at its viewport, and compare it with the original: pixel diff, SSIM, bounding-box geometry, computed styles, missing or extra elements, then replay every recorded transition that starts from a base state or one step away from it (locating targets by data-uidna-path, then role and name) and compare the resulting role-tree change and screenshot. Returns a DiffReport with one finding per concrete difference, plus regressions and resolved findings relative to the previous attempt.',
+    'Build and serve the generated project, render every base state of every crawled page at its viewport (each page at its generated route), and compare it with the original: pixel diff, SSIM, bounding-box geometry, computed styles, missing or extra elements. Then replay every recorded transition whose source state is reachable by a chain of at most 8 recorded transitions from a base state (locating targets by data-uidna-path, then role and name): clicks, hovers, focus, keys, form fills with the recorded synthetic values, form submits (the request is blocked, as during the scan) and same-origin navigations through the original link, comparing the resulting role-tree change, URL and screenshot. Transitions that caused a side effect are never replayed. With runGeneratedTests, also runs the generated Playwright behavior tests (npm run test:behavior) and reports each result. Returns a DiffReport with one finding per concrete difference, plus regressions and resolved findings relative to the previous attempt.',
   shape: 'compare',
   input: z.object({
     scanId: ScanIdSchema,
@@ -544,8 +544,8 @@ export const reconstructInterface = defineTool({
     viewports: ViewportWidthsSchema.optional(),
     budget: BudgetInputSchema.optional(),
     crawl: CrawlInputSchema.optional(),
-    captureBodies: z.enum(['none', 'json']).optional(),
-    policy: z.enum(['safe', 'forms']).optional().describe('Exploration policy. Default safe.'),
+    captureBodies: z.enum(['none', 'json']).optional().describe('Store JSON response bodies of XHR/fetch requests as data assets (redacted, size-capped); the generator turns them into typed mocks. Default none.'),
+    policy: z.enum(['safe', 'forms']).optional().describe('Exploration policy: "safe" never touches forms, "forms" fills and submits them with synthetic values, every submission request blocked. Default safe.'),
     explore: z.boolean().optional().describe('Run exploration. Default true.'),
     install: z.boolean().optional().describe('Run npm install in the generated project. Default true.'),
     headless: z.boolean().optional(),

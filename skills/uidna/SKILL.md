@@ -15,9 +15,17 @@ and report. It makes no model calls of its own.
    in a fresh headless Chromium. Authenticated apps need the user's own Chrome started
    with `--remote-debugging-port=9222`; ask before attaching, and never ask for or store
    credentials.
-2. **Capture.** `scan_interface` with the URL (or `cdpEndpoint`) and viewports. Read the
-   returned states, assets and limitations. Then `explore_interactions` (policy `safe`)
-   to record states and transitions. Both write under `./.uidna/<scan-id>/`.
+2. **Capture.** `scan_interface` with the URL (or `cdpEndpoint`) and viewports. For a
+   site rather than a page, pass `crawl: { maxPages, include, exclude }`: same-origin
+   links are followed breadth-first, cross-origin links are recorded and never followed.
+   Pass `captureBodies: "json"` when the page renders data from fetch/XHR calls; JSON
+   responses are stored redacted as data assets. Read the returned pages, states, assets
+   and limitations. Then `explore_interactions` to record states and transitions: policy
+   `safe` never touches forms; policy `forms` fills forms with synthetic values (override
+   them per control with `formValues`, never with real credentials) and submits them
+   empty and filled to observe validation, with every submission request blocked. Use
+   `forms` only on interfaces the user may test that way. Both steps write under
+   `./.uidna/<scan-id>/`.
 3. **Understand.** `inspect_dna` for the summary and facets, `inspect_element` for a
    node's box, style and tokens, `search_components` for fingerprinted candidates,
    `extract_tokens` for clusters with sample counts. Every value carries provenance:
@@ -29,13 +37,20 @@ and report. It makes no model calls of its own.
    measured values stay alongside.
 5. **Generate.** `generate_project` writes a React + TypeScript + Tailwind + Vite baseline
    with generated names, tokens as CSS variables, observed transitions as React state,
-   placeholders for unauthorized assets. Backend-dependent data is not modelled in
-   Phase 1 (captures keep no response bodies), so expect static content and say so.
-   It installs and builds; read the build log if it fails.
-6. **Verify.** `verify_reconstruction` renders the project at every viewport, compares
-   pixels, geometry, styles and element presence, replays every recorded transition and
-   returns a DiffReport: one finding per concrete difference with the original and
-   generated values, never a single score.
+   placeholders for unauthorized assets. A crawled site gets one component per page
+   behind react-router, with the shared header and footer in a layout. Forms reproduce
+   the observed validation messages and never send a request. Each captured JSON
+   response becomes a typed mock; without `captureBodies` there are none, so expect
+   static content and say so. `tests/behavior.spec.ts` replays the implemented
+   transitions with Playwright and skips the rest with a reason. It installs and builds;
+   read the build log if it fails.
+6. **Verify.** `verify_reconstruction` renders every page of the project at every
+   viewport, compares pixels, geometry, styles and element presence, replays the
+   recorded transitions (clicks, keys, hovers, fills, blocked submits and same-origin
+   navigations, never one that caused a side effect) and returns a DiffReport: one
+   finding per concrete difference with the original and generated values, never a
+   single score. Pass `runGeneratedTests: true` to also run the generated Playwright
+   suite; a failing test becomes a behavior finding.
 7. **Repair.** Fix findings by editing the generated project locally; do not regenerate
    the whole project for a local finding. Re-run `verify_reconstruction`; it reports
    regressions and resolved findings against the previous attempt.

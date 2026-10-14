@@ -156,6 +156,11 @@ export const ExploreRecordSchema = z.strictObject({
   unknowns: z.array(z.string()),
   /** True when the run ended early (budget, cancellation, browser failure). */
   partial: z.boolean(),
+  /**
+   * `<pageId>:<nodePath>` of every control whose action caused a side effect or left the crawl, in this run or
+   * an earlier one; a later run never acts on them again. Absent for records written before multi-page crawls.
+   */
+  sideEffectKeys: z.array(z.string()).optional(),
 });
 export type ExploreRecord = z.infer<typeof ExploreRecordSchema>;
 

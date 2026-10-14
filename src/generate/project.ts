@@ -493,7 +493,14 @@ function readmeBehaviorTests(summary: BehaviorSpecSummary | null): string[] {
     lines.push('');
     return lines;
   }
-  lines.push(`\`tests/behavior.spec.ts\` replays ${summary.tests} implemented transition${summary.tests === 1 ? '' : 's'} with Playwright (one test per target, action and viewport${summary.deduplicated.length > 0 ? `; ${summary.deduplicated.map((id) => `\`${id}\``).join(', ')} share a test with an earlier transition` : ''}) and skips ${summary.skipped} that the generator did not reproduce, each with its reason. Targets are located by role and exact accessible name, then by \`data-uidna-path\`; assertions cover the observed attribute, visibility, text, value and URL deltas.`);
+  const unreproduced = summary.skipped - summary.notReplayed.length;
+  const skips = [
+    unreproduced > 0 ? `${unreproduced} that the generator did not reproduce` : null,
+    summary.notReplayed.length > 0
+      ? `${summary.notReplayed.map((id) => `\`${id}\``).join(', ')}, which caused a side effect when ${summary.notReplayed.length === 1 ? 'it was' : 'they were'} observed and ${summary.notReplayed.length === 1 ? 'is' : 'are'} never replayed`
+      : null,
+  ].filter((part) => part !== null);
+  lines.push(`\`tests/behavior.spec.ts\` replays ${summary.tests} implemented transition${summary.tests === 1 ? '' : 's'} with Playwright (one test per target, action and viewport${summary.deduplicated.length > 0 ? `; ${summary.deduplicated.map((id) => `\`${id}\``).join(', ')} share a test with an earlier transition` : ''})${skips.length > 0 ? ` and skips ${skips.join(' and ')}, each with its reason` : ''}. Targets are located by role and exact accessible name, then by \`data-uidna-path\`; assertions cover the observed attribute, visibility, text, value and URL deltas.`);
   lines.push('');
   lines.push('```sh');
   lines.push('npx playwright install chromium   # once');

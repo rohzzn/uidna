@@ -26,7 +26,7 @@ how it behaves and how to reproduce it, down to the token, the component and the
 transition, then rebuild it as code you own, with proof.
 
 ```text
-agent asks about a target  →  UI DNA captures, measures, explores
+agent asks about a target  →  UI DNA captures, crawls, measures, explores
                            →  returns a UI DNA document + evidence + unknowns
 agent reconstructs, verifies, repairs, reports
 ```
@@ -72,22 +72,29 @@ Manual MCP configuration, if you prefer:
 The shipped skill, [`skills/uidna/SKILL.md`](skills/uidna/SKILL.md), teaches the agent the
 loop. Copy it into your agent's skills directory (for Claude Code, `~/.claude/skills/uidna/`).
 
-To run the whole loop without an agent:
+To run the whole loop without an agent, on one page:
 
 ```bash
 uidna reconstruct https://example.com ./example-clone --viewports 1280,768,390
+```
+
+On a small site you own, following up to five same-origin pages, capturing JSON responses
+as data and exercising its forms with synthetic values:
+
+```bash
+uidna reconstruct http://localhost:3000 ./my-site --crawl '{"maxPages":5}' --capture-bodies json --policy forms
 ```
 
 ## How it works
 
 | Step | What happens | Who decides |
 | --- | --- | --- |
-| **Capture** | Chromium loads the page at each viewport. UI DNA records the DOM, computed styles filtered to rendering properties, bounding boxes, the accessibility tree, fonts, assets, network metadata and one screenshot per state. | UI DNA |
-| **Explore** | Safe interactions only: hover, focus, Escape, Tab, and clicks on non-submitting buttons, summaries, tabs and disclosure or menu triggers. Every action is snapshotted, performed, diffed and reverted. Anything inside a form, any navigating link and any deny-listed name is skipped and reported. | UI DNA |
-| **Measure** | Tokens come from clustering measured values, with sample counts. Component candidates come from structural fingerprints, with instances, varying props, variants and a confidence derived from agreement. | UI DNA |
+| **Capture** | Chromium loads each page at each viewport. UI DNA records the DOM, computed styles filtered to rendering properties, bounding boxes, the accessibility tree, form facts, fonts, assets, network metadata and one screenshot per state. With a crawl, same-origin links are followed breadth-first within a page budget; with body capture, JSON responses are stored as redacted data assets. | UI DNA |
+| **Explore** | Hover, focus, Escape, Tab, and clicks on non-submitting buttons, summaries, tabs and disclosure or menu triggers, on every page. Links to another crawled page are followed once and recorded as navigation transitions. The `forms` policy also fills each form with synthetic values and submits it empty and filled, with every submission request blocked. Every action is snapshotted, performed, diffed and reverted; every skip has a reason. | UI DNA |
+| **Measure** | Tokens come from clustering measured values, with sample counts. Component candidates come from structural fingerprints across pages, with instances, varying props, variants and a confidence derived from agreement. Header and footer shared by every page become a layout. | UI DNA |
 | **Understand and annotate** | The agent reads the document, names components and tokens, records what it infers and why, and authorizes assets the user owns. Agent readings are stored as `inferred` next to the measured values, never over them. | the agent |
-| **Generate** | A deterministic React + TypeScript + Tailwind + Vite baseline: semantic HTML, extracted components, tokens as CSS variables and a Tailwind theme, observed transitions as React state with the original ARIA attributes. | UI DNA |
-| **Verify** | Pixel diff, SSIM, geometry, computed styles and element presence per state and viewport; every recorded transition replayed. One finding per concrete difference, with the original and generated values. | UI DNA |
+| **Generate** | A deterministic React + TypeScript + Tailwind + Vite project: one component per page behind react-router, semantic HTML, extracted components, tokens as CSS variables and a Tailwind theme, observed transitions as React state with the original ARIA attributes, forms with the observed validation messages, typed mocks from captured data, and a Playwright suite that replays the recorded transitions. | UI DNA |
+| **Verify** | Pixel diff, SSIM, geometry, computed styles and element presence per page, state and viewport. Recorded transitions are replayed, including fills, blocked submits and navigations, and the generated Playwright suite can run too. One finding per concrete difference, with the original and generated values. | UI DNA |
 | **Repair and report** | The agent edits the project against the DiffReport and re-verifies; regressions and resolved findings are tracked per attempt. A static HTML report shows the evidence. | the agent |
 
 Every value in the document carries provenance: `measured`, `observed`, `inferred` (agent
@@ -96,10 +103,10 @@ single blended score.
 
 ## What ships today
 
-Phase 1 is complete: the loop from URL to verified React project, proven in CI with a real
-Chromium against [Fixture A](fixtures/a-marketing), a marketing page with a responsive
-navbar and hamburger menu, a hero, two call-to-action buttons, a three-card grid, an
-image, an FAQ accordion and a footer, at 1280, 768 and 390 pixels wide.
+**Phase 1, the single-page loop.** From URL to verified React project, proven in CI with a
+real Chromium against [Fixture A](fixtures/a-marketing), a marketing page with a
+responsive navbar and hamburger menu, a hero, two call-to-action buttons, a three-card
+grid, an image, an FAQ accordion and a footer, at 1280, 768 and 390 pixels wide.
 
 - Two browser modes: Playwright-launched Chromium for public pages, and attach to your own
   Chrome over the DevTools Protocol for sessions you are authorized to analyze.
@@ -109,26 +116,47 @@ image, an FAQ accordion and a footer, at 1280, 768 and 390 pixels wide.
   `doctor` on the CLI; `--json`, a config file and debug logging.
 - A versioned, framework-neutral schema published separately as
   [`@rohzzn/uidna-schema`](packages/schema).
-- The generated project builds; its build, the two recorded transitions, and an injected
-  CSS and behavior regression are each a CI test.
+- The generated project builds; its build, the recorded transitions, and an injected CSS
+  and behavior regression are each a CI test.
 
-Fixture A has no forms, no cross-origin links and no network side effects, so the
-side-effect marking, navigation blocking, robots.txt and rate-limit paths are proven by
-unit tests on real browser sessions and synthetic pages rather than by the fixture loop.
+**Phase 2, sites, forms and data.** Each capability below is a CI gate on its own fixture.
+
+- **Multi-page crawl.** `crawl: { maxPages, include, exclude }` follows same-origin links
+  breadth-first; cross-origin links are recorded and never followed. Pages carry their
+  depth and the link that discovered them. Components are matched across pages, and the
+  header and footer every page shares become one layout.
+- **Navigation transitions.** A click on a link to another crawled page is recorded as a
+  transition between the two pages. The generator wires it as a router link and the
+  verifier replays it through the original link.
+- **Forms.** The `forms` policy fills controls with synthetic values (never real
+  credentials; hidden and file inputs are never filled), submits the empty form to observe
+  client-side validation and the filled form to observe the result. Validation states keep
+  `aria-invalid`, the error message and the browser's validity. Every submission request
+  is blocked, recorded as a side effect and never repeated.
+- **Data.** `captureBodies: "json"` stores JSON responses from fetch and XHR as redacted,
+  size-capped data assets. The generator turns each one into a typed mock.
+- **Behavior tests.** The generated project includes `tests/behavior.spec.ts`: one
+  Playwright test per implemented transition, asserting the observed delta. Transitions
+  the generator did not reproduce, or that caused a side effect when observed, are
+  skipped with the reason. `verify_reconstruction` runs the suite when asked.
+
+[Fixture C](fixtures/c-form) is a signup form with client-side validation, a POST
+endpoint and a JSON list. [Fixture D](fixtures/d-multipage) is a three-page site with a
+shared header and footer, tabs, a pricing toggle and a cross-origin footer link.
 
 ## Tools and commands
 
 | Command | Tool | Answers |
 | --- | --- | --- |
-| `uidna scan <url>` | `scan_interface` | What is on the page at each viewport? Creates `./.uidna/<scan-id>/`. |
-| `uidna explore <scan>` | `explore_interactions` | What changes when I interact safely? Records states and transitions. |
+| `uidna scan <url>` | `scan_interface` | What is on each page at each viewport? `--crawl` for a site, `--capture-bodies json` for data. Creates `./.uidna/<scan-id>/`. |
+| `uidna explore <scan>` | `explore_interactions` | What changes when I interact? `--policy safe` (default) or `forms`; `--pages` and `--viewports` narrow it. |
 | `uidna inspect <scan>` | `inspect_dna` | Summary, one facet, one path, or the whole document. |
-| `uidna element <scan> <state>` | `inspect_element` | One node: box, style, tokens, a11y, ancestors, evidence. |
-| `uidna components <scan>` | `search_components` | Fingerprinted component candidates in stable order. |
+| `uidna element <scan> <state>` | `inspect_element` | One node: box, style, tokens, a11y, form facts, ancestors, evidence. |
+| `uidna components <scan>` | `search_components` | Fingerprinted component candidates in stable order, matched across pages. |
 | `uidna tokens <scan>` | `extract_tokens` | Token clusters with member values and sample counts. |
 | `uidna annotate <scan> <patches>` | `annotate_dna` | Apply the agent's readings with `inferred` / `agent` provenance. |
-| `uidna generate <scan> <outDir>` | `generate_project` | The React baseline, installed and built. |
-| `uidna verify <scan> <outDir>` | `verify_reconstruction` | The DiffReport for this attempt, with regressions and resolved findings. |
+| `uidna generate <scan> <outDir>` | `generate_project` | The React project, installed and built. `--router`, `--no-behavior-tests`. |
+| `uidna verify <scan> <outDir>` | `verify_reconstruction` | The DiffReport for this attempt, with regressions and resolved findings. `--run-generated-tests`. |
 | `uidna report <scan>` | `report_reconstruction` | The static HTML report. |
 | `uidna export <scan>` | `export_evidence` | A portable evidence bundle with a manifest of digests. |
 | `uidna reconstruct <url> <outDir>` | `reconstruct_interface` | The whole loop. |
@@ -152,8 +180,8 @@ The full catalog, generated from the contracts, is in [`docs/tools.md`](docs/too
 A UI DNA document describes an interface the way an engineer needs it described to rebuild
 it: pages and navigation, observed states and the transitions between them, component
 candidates with their instances, visual tokens with the measurements behind them, layout
-constraints per node, observed behavior, assets with origin and authorization, and what
-could not be observed.
+constraints per node, form facts and validation states, observed behavior, assets and data
+with origin and authorization, and what could not be observed.
 
 ```json
 {
@@ -170,7 +198,9 @@ could not be observed.
 }
 ```
 
-The reference is [`docs/ui-dna.md`](docs/ui-dna.md); a complete validated example from
+Schema 0.2.0 adds pages with depth and discovery, form facts on nodes, `fill` and `submit`
+actions, navigation transitions and data assets; every 0.1.0 document is still valid. The
+reference is [`docs/ui-dna.md`](docs/ui-dna.md); a complete validated example from
 Fixture A is in [`docs/examples/fixture-a.dna.json`](docs/examples/fixture-a.dna.json).
 
 ## A measured run
@@ -207,24 +237,31 @@ redistributes third-party assets: unauthorized assets become labeled placeholder
 you mark them authorized with `annotate_dna`. See [DISCLAIMER.md](DISCLAIMER.md) and
 [SECURITY.md](SECURITY.md).
 
+The `forms` policy types synthetic values into the page and runs its submit handlers.
+Submission requests are blocked before they leave the browser, but use it only on
+interfaces you may test that way. A crawl stays on the seed's origin, honors `robots.txt`
+and stops at its page budget.
+
 To analyze an authenticated app, start your own Chrome with `--remote-debugging-port=9222`,
 open the page, then `uidna scan --cdp-endpoint http://localhost:9222`. The session stays
 yours; UI DNA reads the page and performs the same safe interactions.
 
 ## Limitations
 
-- One page per scan. Same-origin navigation and multi-page crawls are not in Phase 1.
+- A crawl follows same-origin `<a href>` links only, up to 50 pages. Navigations made by
+  scripts are blocked and reported, not followed.
+- Server responses to form submissions are never observed, because the requests are
+  blocked. Success states that depend on the server are reproduced only as far as the
+  page showed them without one, and the generated README says so.
 - `<iframe>` content and shadow DOM are not entered; they are reported as limitations.
 - Inline `<svg>` markup is not captured; such nodes become placeholders.
-- Backend-dependent data is not modelled: captures record network metadata, not response
-  bodies, so no mocks are generated yet and the generated README says so.
 - Breakpoints are observed at the scanned widths: a breakpoint token says the layout at
   that width differs from the next wider scanned width, not where the media query lies.
 - Spacing tokens are used values: a `margin: auto` shows up as the pixel margin it produced.
 - Hover and focus transitions are reproduced as CSS variants at every viewport; click
   transitions are reproduced when the changed nodes live in the same section or component
   as the trigger. Every behavior the generator could not implement is listed in the
-  generated README.
+  generated README and skipped in its Playwright suite.
 - The generator is a baseline, not a finished product: names are placeholders and the agent
   is expected to repair against the DiffReport.
 - Verification compares at the scanned viewports with system fonts; cross-machine pixel
@@ -235,25 +272,25 @@ yours; UI DNA reads the page and performs the same safe interactions.
 
 ```text
 packages/schema/   @rohzzn/uidna-schema: Zod schema, JSON Schema, types, changelog
-src/domain/        fingerprints, clustering, colors, safe-action policy, Result, budgets
+src/domain/        fingerprints, clustering, colors, safe-action and forms policy, Result, budgets
 src/contracts/     tool contracts and the canonical catalog (docs/tools.md is generated)
-src/browser/       Playwright launch + CDP attach adapters, capture, robots, redaction
-src/analysis/      normalization, token clustering, components, layout, assembly
-src/explore/       safe interaction exploration, state graph, revert
-src/generate/      UI DNA document → React project
-src/verify/        render, visual + behavioral compare, DiffReport, HTML report
-src/application/  workflows shared by the CLI and the MCP server
+src/browser/       Playwright launch + CDP attach adapters, capture, robots, redaction, JSON bodies
+src/analysis/      normalization, token clustering, components, layout, multi-page assembly
+src/explore/       interaction rounds, navigation, form chains, state graph, revert
+src/generate/      UI DNA document → React project, router, forms, mocks, Playwright tests
+src/verify/        render, visual + behavioral compare, generated-test runs, DiffReport, HTML report
+src/application/   workflows shared by the CLI and the MCP server, crawl, scan store
 src/server/        MCP adapter
 skills/uidna/      SKILL.md
-fixtures/          Fixture A
-tests/             end-to-end loop on Fixture A and the MCP server over stdio
+fixtures/          A (marketing page), C (signup form and data), D (three-page site)
+tests/             end-to-end loops on Fixtures A, C and D, and the MCP server over stdio
 ```
 
 ```bash
 npm ci
 npm run build
-npm run test:unit    # real Chromium against Fixture A and synthetic pages, no module mocks
-npm run test:e2e     # the Phase 1 loop and the MCP server over stdio (about 10 minutes)
+npm run test:unit    # real Chromium against the fixtures and synthetic pages, no module mocks
+npm run test:e2e     # the Phase 1 and Phase 2 loops and the MCP server (about 25 minutes)
 npm run docs:catalog
 ```
 

@@ -57,7 +57,7 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 
 **Explore interactions** — shape: `capture` — CLI: `uidna explore <scanId>`
 
-Try safe interactions on the captured base states (hover, focus, Escape, Tab, clicks on non-submitting buttons, summaries, tabs, disclosure and menu triggers). Records a new state and a transition for every action that changed the page, reverts after each one, and lists every skipped interaction with its reason. Never submits forms, never follows links (every document navigation an action requests is blocked), and never repeats an action that caused a non-GET request or a navigation, in this run or a later run of the same scan. Coverage counts: discovered = visible interactive elements, explored = interactions attempted (including ones the browser refused, listed in explore.json), changed = new states.
+Try safe interactions on the captured base states of every crawled page (hover, focus, Escape, Tab, clicks on non-submitting buttons, summaries, tabs, disclosure and menu triggers). Records a new state and a transition for every action that changed the page, reverts after each one, and lists every skipped interaction with its reason. Same-origin links to another crawled page are clicked once and recorded as navigation transitions between pages; every other document navigation an action requests is blocked. The safe policy never touches forms; the forms policy also fills each form with synthetic values (never real credentials) and submits it empty and filled to observe validation, with every non-GET request blocked. An action that caused a side effect (a non-GET request, or a navigation off the crawl) is never repeated, in this run or a later run of the same scan. Coverage counts, in total and per page: discovered = visible interactive elements, explored = interactions attempted (including ones the browser refused, listed in explore.json), changed = new states.
 
 Effects: writes artifacts, non-destructive, not idempotent, reaches the network. Long-running: accepts progress tokens and cancellation.
 
@@ -214,7 +214,7 @@ Effects: writes artifacts, destructive, idempotent, reaches the network. Long-ru
 
 **Verify reconstruction** — shape: `compare` — CLI: `uidna verify <scanId> <outDir>`
 
-Build and serve the generated project, render every base state at its viewport, and compare it with the original: pixel diff, SSIM, bounding-box geometry, computed styles, missing or extra elements, then replay every recorded transition that starts from a base state or one step away from it (locating targets by data-uidna-path, then role and name) and compare the resulting role-tree change and screenshot. Returns a DiffReport with one finding per concrete difference, plus regressions and resolved findings relative to the previous attempt.
+Build and serve the generated project, render every base state of every crawled page at its viewport (each page at its generated route), and compare it with the original: pixel diff, SSIM, bounding-box geometry, computed styles, missing or extra elements. Then replay every recorded transition whose source state is reachable by a chain of at most 8 recorded transitions from a base state (locating targets by data-uidna-path, then role and name): clicks, hovers, focus, keys, form fills with the recorded synthetic values, form submits (the request is blocked, as during the scan) and same-origin navigations through the original link, comparing the resulting role-tree change, URL and screenshot. Transitions that caused a side effect are never replayed. With runGeneratedTests, also runs the generated Playwright behavior tests (npm run test:behavior) and reports each result. Returns a DiffReport with one finding per concrete difference, plus regressions and resolved findings relative to the previous attempt.
 
 Effects: writes artifacts, non-destructive, not idempotent, local only. Long-running: accepts progress tokens and cancellation.
 
@@ -294,8 +294,8 @@ Effects: writes artifacts, non-destructive, not idempotent, reaches the network.
 | `viewports` | array of integer | no | Viewport widths in CSS pixels. Heights are derived: ≥1200 → 800, ≥700 → 1024, otherwise 844. |
 | `budget` | object | no | Per-scan budget. Exhaustion ends the step with partial artifacts and a diagnostic. |
 | `crawl` | object | no | Breadth-first crawl of same-origin links discovered on captured pages. Cross-origin links are recorded, never followed. |
-| `captureBodies` | "none" \| "json" | no |  |
-| `policy` | "safe" \| "forms" | no | Exploration policy. Default safe. |
+| `captureBodies` | "none" \| "json" | no | Store JSON response bodies of XHR/fetch requests as data assets (redacted, size-capped); the generator turns them into typed mocks. Default none. |
+| `policy` | "safe" \| "forms" | no | Exploration policy: "safe" never touches forms, "forms" fills and submits them with synthetic values, every submission request blocked. Default safe. |
 | `explore` | boolean | no | Run exploration. Default true. |
 | `install` | boolean | no | Run npm install in the generated project. Default true. |
 | `headless` | boolean | no |  |

@@ -139,12 +139,15 @@ export interface BehaviorSpecSummary {
   readonly skipped: number;
   /** Transition ids that share a test with an earlier transition (same target, action and viewport). */
   readonly deduplicated: readonly string[];
+  /** Transition ids skipped because they caused a side effect when they were observed (counted in `skipped`). */
+  readonly notReplayed: readonly string[];
 }
 
 /** `tests/behavior.spec.ts` content and its summary. */
 export function renderBehaviorSpec(scanId: string, reports: readonly BehaviorReport[]): { code: string; summary: BehaviorSpecSummary } {
   const seen = new Map<string, string>();
   const deduplicated: string[] = [];
+  const notReplayed: string[] = [];
   const bodies: string[][] = [];
   let tests = 0;
   let skipped = 0;
@@ -152,6 +155,13 @@ export function renderBehaviorSpec(scanId: string, reports: readonly BehaviorRep
   let usesSubmit = false;
   for (const report of reports) {
     const title = `${report.transitionId}: ${report.action} ${report.target}`;
+    if (report.neverReplayed) {
+      // The suite runs outside UI DNA's request guard and BASE_URL can point anywhere: an action that caused a side effect when it was observed is never replayed, as in the verifier.
+      skipped += 1;
+      notReplayed.push(report.transitionId);
+      bodies.push([`  test.skip(${jsString(`${title}: not replayed`)}, async () => {`, '    // Reason: the action caused a side effect when it was observed (a non-GET request); UI DNA never repeats it.', '  });']);
+      continue;
+    }
     if (report.status !== 'implemented' || report.test === null) {
       skipped += 1;
       bodies.push([`  // ${commentText(report.detail)}`, `  test.skip(${jsString(`${title}: not reproduced`)}, async () => {`, '    // Reason: see the comment above and README "Behavior".', '  });']);
@@ -225,5 +235,5 @@ export function renderBehaviorSpec(scanId: string, reports: readonly BehaviorRep
   });
   lines.push('});');
   lines.push('');
-  return { code: lines.join('\n'), summary: { tests, skipped, deduplicated } };
+  return { code: lines.join('\n'), summary: { tests, skipped, deduplicated, notReplayed } };
 }

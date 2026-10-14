@@ -11,6 +11,7 @@
  * every implemented transition carries the expectations its behavior test
  * asserts.
  */
+import { neverReplayed } from '../domain/safe-policy.js';
 import type { Action, ActionTarget, Transition, UiNode, UiState, Viewport } from '@rohzzn/uidna-schema';
 import { stableStringify } from '../domain/digest.js';
 import { isFormControl, keptAttributes } from './attrs.js';
@@ -155,6 +156,8 @@ export interface BehaviorReport {
   readonly file: string | null;
   /** The behavior test, for implemented transitions whose outcome can be asserted. */
   readonly test: TransitionTest | null;
+  /** True when the transition is never repeated (see `neverReplayed`): the generated suite skips it, as the verifier does. */
+  readonly neverReplayed: boolean;
 }
 
 /** Result of behavior planning. */
@@ -389,7 +392,7 @@ export function planBehavior(model: GenerationModel, transitions: readonly Trans
     return created;
   };
   const report = (transition: Transition, status: BehaviorReport['status'], detail: string, file: string | null, test: TransitionTest | null = null): void => {
-    reports.push({ transitionId: transition.id, action: describeAction(transition), target: describeTarget(transition.action.target), status, detail, file, test });
+    reports.push({ transitionId: transition.id, action: describeAction(transition), target: describeTarget(transition.action.target), status, detail, file, test, neverReplayed: neverReplayed(transition) });
   };
   const addAttrCondition = (behavior: NodeBehavior, attr: string, condition: AttrCondition): void => {
     const list = behavior.attrConditions.get(attr) ?? [];

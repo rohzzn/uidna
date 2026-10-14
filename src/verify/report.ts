@@ -8,7 +8,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import type { Attributed, Token, TypographyStyle, UiDnaDocument, UiState } from '@rohzzn/uidna-schema';
+import type { Attributed, Page, Token, TypographyStyle, UiDnaDocument, UiState } from '@rohzzn/uidna-schema';
 import type { WorkflowContext } from '../application/context.js';
 import type { ScanRecord } from '../application/records.js';
 import { pngSize } from '../browser/capture.js';
@@ -16,7 +16,9 @@ import { BoxMatchSchema, type DiffReport, type Finding, type VisualComparison } 
 import { toError } from '../domain/errors.js';
 import { err, ok, tryCatch, type Result } from '../domain/result.js';
 import { severityRank } from './findings.js';
+import { GENERATED_TESTS_FILE, GeneratedTestRunSchema, type GeneratedTestRun } from './generated-tests.js';
 import { attr, escapeHtml, formatNumber, formatPercent, safeCssColor } from './html.js';
+import { orderByPage, pageRoute } from './pages.js';
 
 /** Input of `renderReport`. */
 export interface RenderReportInput {
@@ -88,6 +90,12 @@ class ArtifactPaths {
 
   async boxes(attempt: number, stateId: string): Promise<BoxMatch[] | null> {
     const read = await this.ctx.store.readJson(this.scanId, `verify/attempt-${attempt}/${stateId}.boxes.json`, BoxMatchesSchema);
+    return read.ok ? read.value : null;
+  }
+
+  /** The stored generated test run of an attempt, or null when the attempt did not run them. */
+  async generatedTests(attempt: number): Promise<GeneratedTestRun | null> {
+    const read = await this.ctx.store.readJson(this.scanId, `verify/attempt-${attempt}/${GENERATED_TESTS_FILE}`, GeneratedTestRunSchema);
     return read.ok ? read.value : null;
   }
 }
@@ -169,6 +177,7 @@ function framed(src: string | null, alt: string, caption: string, size: { width:
 /* ------------------------------------------------------------- sections */
 
 function renderHeader(scan: ScanRecord, dna: UiDnaDocument, attempts: readonly DiffReport[]): string {
+  const followed = dna.app.navigation.filter((edge) => edge.followed).length;
   const meta: [string, string][] = [
     ['Scan id', scan.scanId],
     ['Target', `${dna.target.kind} ${dna.target.url}`],
@@ -176,7 +185,8 @@ function renderHeader(scan: ScanRecord, dna: UiDnaDocument, attempts: readonly D
     ['Tool', `${dna.target.tool.name} ${dna.target.tool.version} (UI DNA ${dna.dnaVersion})`],
     ['Browser', `${scan.browser.name} (${scan.browser.mode})${scan.browser.version === null ? '' : ` ${scan.browser.version}`}`],
     ['Viewports', dna.target.viewports.map((v) => `${v.width}×${v.height}`).join(', ')],
-    ['States', `${dna.states.items.length} (${dna.states.items.filter((s) => s.kind === 'base').length} base, ${dna.states.transitions.length} transitions)`],
+    ['Pages', `${dna.app.pages.length} (${dna.app.navigation.length} navigation edges, ${followed} followed, ${dna.app.layouts.length} shared layouts)`],
+    ['States', `${dna.states.items.length} (${dna.states.items.filter((s) => s.kind === 'base').length} base, ${dna.states.transitions.length} transitions, ${dna.states.transitions.filter((t) => t.navigation).length} navigations)`],
   ];
   const rows = attempts.map((a) => [
     cell(a.attempt),
@@ -245,6 +255,61 @@ async function renderState(state: UiState, attempts: readonly DiffReport[], path
     latestVisual === null || latestVisual.limitations.length === 0 ? '' : `<h4>Limitations</h4><ul>${latestVisual.limitations.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`,
     '</section>',
   ].join('\n');
+}
+
+/** Coverage line of a page from the document (never invented: absent coverage says so). */
+function coverageText(page: Page): string {
+  const c = page.coverage;
+  if (c === undefined) return 'coverage not recorded (explore_interactions has not run on this page, or its record predates per-page coverage)';
+  return `coverage: ${c.discovered} interactive elements discovered, ${c.explored} interactions explored, ${c.changed} changed the page, ${c.skipped} skipped`;
+}
+
+/** One section per page of the document (document order) with its base states, then the states of pages the document does not list. */
+async function renderPages(dna: UiDnaDocument, attempts: readonly DiffReport[], paths: ArtifactPaths): Promise<{ html: string; states: number }> {
+  const baseStates = orderByPage(
+    dna,
+    dna.states.items.filter((s) => s.kind === 'base'),
+  );
+  const sections: string[] = [];
+  const rendered = new Set<string>();
+  for (const page of dna.app.pages) {
+    const states = baseStates.filter((s) => s.pageId === page.id);
+    const route = pageRoute(dna, page.id);
+    const facts: string[] = [];
+    if (page.depth !== undefined) facts.push(`crawl depth ${page.depth}`);
+    if (page.discoveredVia !== undefined && page.discoveredVia !== null) facts.push(`discovered via ${page.discoveredVia}`);
+    if (route !== null) facts.push(`route ${route}`);
+    facts.push(coverageText(page));
+    const body: string[] = [];
+    for (const state of states) {
+      rendered.add(state.id);
+      body.push(await renderState(state, attempts, paths));
+    }
+    sections.push(
+      [
+        `<section class="page"${attr('id', `page-${page.id}`)}>`,
+        `<h3 class="page-title">${esc(page.id)} · ${esc(page.url)}${page.title.value === null ? '' : ` · ${esc(page.title.value)}`}</h3>`,
+        `<p class="muted">${esc(facts.join(' · '))} · ${states.length} base state${states.length === 1 ? '' : 's'}</p>`,
+        states.length === 0 ? '<p class="muted">No base state was captured for this page.</p>' : body.join('\n'),
+        '</section>',
+      ].join('\n'),
+    );
+  }
+  const orphans = baseStates.filter((s) => !rendered.has(s.id));
+  if (orphans.length > 0) {
+    const body: string[] = [];
+    for (const state of orphans) body.push(await renderState(state, attempts, paths));
+    sections.push(
+      [
+        '<section class="page" id="page-unlisted">',
+        '<h3 class="page-title">States of pages the document does not list</h3>',
+        `<p class="muted">${orphans.length} base state${orphans.length === 1 ? '' : 's'} whose page id has no app.pages entry (page ids: ${esc([...new Set(orphans.map((s) => s.pageId))].join(', '))}).</p>`,
+        body.join('\n'),
+        '</section>',
+      ].join('\n'),
+    );
+  }
+  return { html: sections.join('\n'), states: baseStates.length };
 }
 
 function tokenRows(tokens: readonly Token[], swatch: boolean): string[][] {
@@ -320,18 +385,30 @@ async function renderBehavior(latest: DiffReport | null, dna: UiDnaDocument, pat
     return `<section id="behavior"><h2>Behavior replay</h2><p class="muted">${dna.states.transitions.length === 0 ? 'No transitions were recorded; run explore_interactions to observe some.' : 'No verification attempt replayed the recorded transitions yet.'}</p></section>`;
   }
   const statesById = new Map(dna.states.items.map((s) => [s.id, s] as const));
+  const pagesById = new Map(dna.app.pages.map((p) => [p.id, p] as const));
+  const transitionsById = new Map(dna.states.transitions.map((t) => [t.id, t] as const));
+  const describePage = (pageId: string | undefined): string => {
+    if (pageId === undefined) return 'unknown page';
+    const page = pagesById.get(pageId);
+    return page === undefined ? pageId : `${pageId} (${page.url})`;
+  };
   const blocks: string[] = [];
   for (const b of latest.behavioral) {
+    const from = statesById.get(b.fromStateId);
     const to = statesById.get(b.toStateId);
+    const transition = transitionsById.get(b.transitionId);
+    const navigation = transition?.navigation ?? null;
     const originalSrc = await paths.relative(to?.screenshot?.path ?? null);
     const afterSrc = await paths.relative(b.generatedScreenshot);
     const diffSrc = await paths.relative(b.pixels?.diffImagePath ?? null);
     const target = b.action.target;
     const targetText = target === null ? 'no target' : `${target.role ?? target.tag}${target.name === null ? '' : ` "${target.name}"`} at ${target.nodePath === '' ? '(body)' : target.nodePath}`;
-    const action = `${b.action.type}${b.action.key === undefined ? '' : ` ${b.action.key}`}`;
+    const action = `${b.action.type}${b.action.key === undefined ? '' : ` ${b.action.key}`}${b.action.value === undefined ? '' : ` "${b.action.value}"`}`;
     const facts: [string, string][] = [
       ['Action', `${action} on ${targetText}`],
       ['States', `${b.fromStateId} → ${b.toStateId} at ${b.viewport.width}×${b.viewport.height}`],
+      ['Pages', `${describePage(from?.pageId)} → ${describePage(to?.pageId)}`],
+      ...(navigation === null ? [] : [['Navigation', `the original left for page ${describePage(navigation.toPageId)} at ${navigation.url}; the replay must reach its route (or the extension-less alias)`] as [string, string]]),
       ['Locator', `role ${b.locator.role ?? '—'}, name ${b.locator.name ?? '—'}, nth ${b.locator.nth}`],
       ['Replayed', b.replayed ? 'yes' : `no${b.reason === null ? '' : ` (${b.reason})`}`],
       ['Role tree match', b.roleTreeMatch === null ? 'not compared' : b.roleTreeMatch ? 'yes' : 'no'],
@@ -354,7 +431,45 @@ async function renderBehavior(latest: DiffReport | null, dna: UiDnaDocument, pat
       ].join('\n'),
     );
   }
-  return `<section id="behavior"><h2>Behavior replay (attempt ${latest.attempt})</h2>${blocks.join('\n')}</section>`;
+  const never = dna.states.transitions.filter((t) => !latest.behavioral.some((b) => b.transitionId === t.id));
+  const neverList =
+    never.length === 0
+      ? ''
+      : `<p class="muted">${never.length} transition${never.length === 1 ? '' : 's'} not replayed (side effects when observed, or skipped; see the attempt's unknowns): ${esc(never.map((t) => t.id).join(', '))}.</p>`;
+  return `<section id="behavior"><h2>Behavior replay (attempt ${latest.attempt})</h2>${neverList}${blocks.join('\n')}</section>`;
+}
+
+/** The generated Playwright test results of the latest attempt, when it ran them. */
+async function renderGeneratedTests(latest: DiffReport | null, paths: ArtifactPaths): Promise<string> {
+  const run = latest === null ? null : await paths.generatedTests(latest.attempt);
+  if (latest === null || run === null) {
+    return '<section id="generated-tests"><h2>Generated behavior tests</h2><p class="muted">Not run in this attempt (verify_reconstruction with runGeneratedTests: true runs tests/behavior.spec.ts of the generated project against the served build).</p></section>';
+  }
+  if (!run.ran) {
+    return `<section id="generated-tests"><h2>Generated behavior tests (attempt ${latest.attempt})</h2><p class="muted">Not run: ${esc(run.reason ?? 'unknown reason')}.</p></section>`;
+  }
+  const facts: [string, string][] = [
+    ['Command', run.command],
+    ['Exit code', run.exitCode === null ? (run.timedOut ? 'none (timed out)' : 'none') : String(run.exitCode)],
+    ['Duration', `${run.durationMs} ms`],
+    ['Results', `${run.stats.passed} passed, ${run.stats.failed} failed, ${run.stats.skipped} skipped, ${run.stats.flaky} flaky`],
+    ['Report', run.reportPath ?? 'no JSON report was written'],
+    ['Log', run.logPath ?? 'no log was written'],
+  ];
+  if (run.parseError !== null) facts.push(['Report problem', run.parseError]);
+  const rows = run.tests.map((t) => [
+    cell(t.title),
+    cell(t.transitionId),
+    `<td><span${attr('class', `tag status-${t.status}`)}>${esc(t.status)}</span></td>`,
+    cell(formatNumber(t.durationMs, 0)),
+    `<td class="msg">${t.error === null ? '<span class="muted">—</span>' : esc(t.error)}</td>`,
+  ]);
+  return [
+    `<section id="generated-tests"><h2>Generated behavior tests (attempt ${latest.attempt})</h2>`,
+    `<dl class="meta">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`,
+    table(['test', 'transition', 'status', 'ms', 'error'], rows, 'generated-tests'),
+    '</section>',
+  ].join('\n');
 }
 
 function renderLimitations(scan: ScanRecord, dna: UiDnaDocument, latest: DiffReport | null): string {
@@ -398,6 +513,8 @@ td.msg { max-width: 420px; } td.muted, .muted { color: var(--muted); }
 .swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid var(--line); border-radius: 3px; vertical-align: middle; margin-right: 6px; }
 .tag, .sev { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 12px; background: var(--surface); }
 .sev-high { background: #fdecea; color: #a12622; } .sev-medium { background: #fff4e0; color: #8a5a00; } .sev-low { background: #eef3ff; color: #2448bf; }
+.status-passed { background: #e6f6ec; color: #1f6b3a; } .status-failed { background: #fdecea; color: #a12622; } .status-skipped { background: var(--surface); color: var(--muted); } .status-flaky { background: #fff4e0; color: #8a5a00; }
+section.page { border-left: 3px solid var(--line); padding-left: 16px; margin: 24px 0; } h3.page-title { font-size: 17px; margin: 24px 0 4px; }
 section.state, article.transition { border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 16px 0; background: var(--bg); }
 .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 12px 0; }
 figure { margin: 0; } figcaption { color: var(--muted); font-size: 12px; margin-bottom: 4px; } figure img { display: block; width: 100%; height: auto; border: 1px solid var(--line); }
@@ -415,10 +532,7 @@ export async function renderReport(input: RenderReportInput): Promise<Result<Ren
   const latest = attempts.length > 0 ? (attempts[attempts.length - 1] ?? null) : null;
   const outPath = isAbsolute(input.outPath) ? input.outPath : resolve(ctx.cwd, input.outPath);
   const paths = new ArtifactPaths(ctx, scan.scanId, dirname(outPath));
-  const baseStates = dna.states.items.filter((s) => s.kind === 'base').sort((a, b) => b.viewport.width - a.viewport.width || compareStrings(a.id, b.id));
-
-  const stateSections: string[] = [];
-  for (const state of baseStates) stateSections.push(await renderState(state, attempts, paths));
+  const pages = await renderPages(dna, attempts, paths);
 
   const html = [
     '<!doctype html>',
@@ -432,12 +546,13 @@ export async function renderReport(input: RenderReportInput): Promise<Result<Ren
     '<body>',
     renderHeader(scan, dna, attempts),
     '<main>',
-    `<section id="states"><h2>Base states (${baseStates.length})</h2>`,
-    ...stateSections,
+    `<section id="states"><h2>Pages and base states (${dna.app.pages.length} page${dna.app.pages.length === 1 ? '' : 's'}, ${pages.states} base state${pages.states === 1 ? '' : 's'})</h2>`,
+    pages.html,
     '</section>',
     renderTokens(dna),
     renderComponents(dna),
     await renderBehavior(latest, dna, paths),
+    await renderGeneratedTests(latest, paths),
     renderLimitations(scan, dna, latest),
     renderLegend(),
     '</main>',
@@ -452,5 +567,5 @@ export async function renderReport(input: RenderReportInput): Promise<Result<Ren
   } catch (cause) {
     return err(toError(cause, 'io', `write report ${outPath}`));
   }
-  return ok({ path: outPath, attempts: attempts.length, findings: latest === null ? 0 : latest.summary.findings, states: baseStates.length });
+  return ok({ path: outPath, attempts: attempts.length, findings: latest === null ? 0 : latest.summary.findings, states: pages.states });
 }

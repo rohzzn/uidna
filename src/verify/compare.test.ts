@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
-import type { Box, UiNode } from '@rohzzn/uidna-schema';
+import type { Box, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
 import { buildFixtureACapture, findNode } from '../analysis/testing.js';
 import { createSampleContext, sampleDocument, SAMPLE_SCAN_ID } from '../application/testing.js';
 import type { CapturedState } from '../browser/types.js';
@@ -16,7 +16,9 @@ import { comparePixels } from './pixels.js';
 import { renderReport } from './report.js';
 import { compareDeltas, diffRoleTrees } from './roles.js';
 import { compareStyles } from './styles.js';
-import { generatedUrl, pathSelector, textSelector } from './verify.js';
+import { errorExcerpt, parsePlaywrightReport, transitionIdOfTitle } from './generated-tests.js';
+import { isLiteralRoute, orderByPage, pageOf, pageRoute, pathnameOf, routeReached } from './pages.js';
+import { generatedUrl, MAX_REPLAY_CHAIN, navigationExclusion, neverReplayed, pathSelector, submitExclusion, textSelector, traceToBase } from './verify.js';
 
 /* ---------------------------------------------------------------- images */
 
@@ -376,6 +378,226 @@ describe('locators and URLs', () => {
     expect(generatedUrl('http://127.0.0.1:5000/', 'http://example.com/pricing?x=1#top')).toBe('http://127.0.0.1:5000/pricing?x=1#top');
     expect(generatedUrl('http://127.0.0.1:5000/', 'http://example.com/index.html#start')).toBe('http://127.0.0.1:5000/#start');
     expect(generatedUrl('http://127.0.0.1:5000/', 'not a url')).toBe('http://127.0.0.1:5000/');
+  });
+
+  it('sends a state to its page route when the document registers one (crawled .html paths included)', () => {
+    expect(generatedUrl('http://127.0.0.1:5000/', 'http://example.com/features.html#tabs', '/features.html')).toBe('http://127.0.0.1:5000/features.html#tabs');
+    expect(generatedUrl('http://127.0.0.1:5000/', 'http://example.com/pricing.html?plan=pro', '/pricing.html')).toBe('http://127.0.0.1:5000/pricing.html?plan=pro');
+    // A parameterized pattern cannot be loaded: the original path decides as before.
+    expect(generatedUrl('http://127.0.0.1:5000/', 'http://example.com/users/42', '/users/:id')).toBe('http://127.0.0.1:5000/users/42');
+    expect(generatedUrl('http://127.0.0.1:5000/', 'not a url', '/features.html')).toBe('http://127.0.0.1:5000/features.html');
+  });
+});
+
+/* ------------------------------------------------------ replay policies */
+
+function uiNode(partial: Partial<UiNode> & Pick<UiNode, 'id' | 'tag'>): UiNode {
+  return { parentId: null, path: '0', depth: 1, role: null, name: null, attrs: {}, text: null, box: { x: 0, y: 0, width: 10, height: 10 }, styleId: 's', a11y: {}, visible: true, interactive: true, inForm: false, childIds: [], ...partial };
+}
+
+describe('navigationExclusion and submitExclusion', () => {
+  const doc = sampleDocument();
+  const seed = doc.app.pages[0];
+  if (seed === undefined) throw new Error('sample page missing');
+  const dna = { app: { ...doc.app, pages: [...doc.app.pages, { ...seed, id: 'pg_02', url: new URL('/features.html', seed.url).href, stateIds: [] }] } };
+  const from = { url: seed.url, pageId: seed.id };
+  const link = (href: string, extra: Partial<UiNode> = {}): UiNode => uiNode({ id: 'a1', tag: 'a', role: 'link', name: 'Features', attrs: { href }, text: 'Features', ...extra });
+
+  it('follows a navigation only through a same-origin link to another crawled page, outside any form, without a denied name', () => {
+    expect(navigationExclusion(dna, from, link('/features.html'), null)).toBeNull();
+    expect(navigationExclusion(dna, from, link('features.html'), null)).toBeNull();
+    expect(navigationExclusion(dna, from, link('/features.html', { inForm: true }), null)).toBe('inside a form');
+    expect(navigationExclusion(dna, from, link('#features'), null)).toBe('fragment link: scroll only');
+    expect(navigationExclusion(dna, from, link('https://example.com/'), null)).toBe('link navigates to another origin');
+    expect(navigationExclusion(dna, from, link('/pricing.html'), null)).toBe('link navigates to an uncrawled page');
+    expect(navigationExclusion(dna, from, link('/'), null)).toBe('link navigates to the current page');
+    expect(navigationExclusion(dna, from, link('/features.html', { name: 'Checkout' }), null)).toBe('denied name: checkout');
+    expect(navigationExclusion(dna, from, link('/features.html'), 'Delete everything')).toBe('denied name: delete');
+    // A submit control or any non-link never replays a navigation, whatever the document's navigation field says.
+    expect(navigationExclusion(dna, from, uiNode({ id: 'b1', tag: 'button', role: 'button', name: 'Features', attrs: { type: 'submit' } }), null)).toContain('is not a link');
+  });
+
+  it('never replays a side-effect transition, except a crawled navigation that sent no non-GET request', () => {
+    const quiet = { requests: 3, nonGet: 0 };
+    const posted = { requests: 3, nonGet: 1 };
+    expect(neverReplayed({ sideEffects: false, network: quiet })).toBe(false);
+    expect(neverReplayed({ sideEffects: true, network: posted })).toBe(true);
+    // A hash change or a blocked navigation is a side effect without a request: never repeated outside a crawled navigation.
+    expect(neverReplayed({ sideEffects: true, network: quiet })).toBe(true);
+    expect(neverReplayed({ sideEffects: true, network: quiet, navigation: { toPageId: 'pg_02', url: 'http://127.0.0.1:4173/features.html' } })).toBe(false);
+    expect(neverReplayed({ sideEffects: true, network: posted, navigation: { toPageId: 'pg_02', url: 'http://127.0.0.1:4173/features.html' } })).toBe(true);
+    expect(neverReplayed({ sideEffects: true, network: quiet, navigation: null })).toBe(true);
+  });
+
+  it('submits only through the form itself or a submit control, never one with a denied name', () => {
+    expect(submitExclusion(uiNode({ id: 'b1', tag: 'button', attrs: { type: 'submit' }, name: 'Create account' }), null)).toBeNull();
+    expect(submitExclusion(uiNode({ id: 'b2', tag: 'button', name: 'Continue' }), null)).toBeNull();
+    expect(submitExclusion(uiNode({ id: 'b3', tag: 'input', attrs: { type: 'image' }, name: 'Go' }), null)).toBeNull();
+    expect(submitExclusion(uiNode({ id: 'f1', tag: 'form', name: 'Sign up' }), null)).toBeNull();
+    expect(submitExclusion(uiNode({ id: 'f2', tag: 'form', attrs: { 'aria-label': 'Checkout' } }), null)).toBe('denied name: checkout');
+    expect(submitExclusion(uiNode({ id: 'b4', tag: 'button', attrs: { type: 'submit' }, name: 'Pay now' }), null)).toBe('denied name: pay');
+    expect(submitExclusion(uiNode({ id: 'b5', tag: 'button', attrs: { type: 'submit' } }), 'Confirm order')).toBe('denied name: confirm');
+    expect(submitExclusion(uiNode({ id: 'b6', tag: 'button', attrs: { type: 'button' }, name: 'Fill example' }), null)).toContain('neither a form nor a submit control');
+    expect(submitExclusion(uiNode({ id: 'i1', tag: 'input', attrs: { type: 'email' } }), null)).toContain('neither a form nor a submit control');
+  });
+});
+
+/* ---------------------------------------------------------------- pages */
+
+describe('pages and routes', () => {
+  it('derives the route the generator registers and recognises its alias', () => {
+    const doc = sampleDocument();
+    expect(pageRoute(doc, 'pg_01')).toBe('/');
+    expect(pageRoute(doc, 'pg_99')).toBeNull();
+    const seed = doc.app.pages[0];
+    if (seed === undefined) throw new Error('sample page missing');
+    const unrouted: UiDnaDocument = { ...doc, app: { ...doc.app, routes: [], pages: [...doc.app.pages, { id: 'pg_02', url: 'http://127.0.0.1:4173/features.html', title: seed.title, stateIds: [] }] } };
+    expect(pageRoute(unrouted, 'pg_01')).toBe('/');
+    expect(pageRoute(unrouted, 'pg_02')).toBe('/features.html');
+    expect(pageOf(unrouted, { pageId: 'pg_02' })?.url).toBe('http://127.0.0.1:4173/features.html');
+    expect(isLiteralRoute('/features.html')).toBe(true);
+    expect(isLiteralRoute('/users/:id')).toBe(false);
+    expect(isLiteralRoute('/docs/*')).toBe(false);
+    expect(isLiteralRoute('features')).toBe(false);
+    expect(routeReached('/features.html', '/features.html')).toBe(true);
+    expect(routeReached('/features.html', '/features')).toBe(true);
+    expect(routeReached('/features.html', '/features/')).toBe(true);
+    expect(routeReached('/features.html', '/pricing.html')).toBe(false);
+    expect(routeReached('/', '/')).toBe(true);
+    expect(routeReached('/', '/features.html')).toBe(false);
+    expect(routeReached('/users/:id', '/users/42')).toBe(false);
+    expect(pathnameOf('http://127.0.0.1:5000/features.html?x=1#y')).toBe('/features.html');
+    expect(pathnameOf('nope')).toBe('/');
+  });
+
+  it('orders base states by page (document order), widest first, unlisted pages last', () => {
+    const doc = sampleDocument();
+    const [st1, st2] = doc.states.items;
+    const seed = doc.app.pages[0];
+    if (st1 === undefined || st2 === undefined || seed === undefined) throw new Error('sample states missing');
+    const pg2 = { ...st1, id: 'st_10', pageId: 'pg_02' };
+    const orphan = { ...st2, id: 'st_11', pageId: 'pg_zz' };
+    const twoPages: UiDnaDocument = { ...doc, app: { ...doc.app, pages: [{ ...seed, id: 'pg_02', stateIds: [] }, ...doc.app.pages] } };
+    expect(orderByPage(twoPages, [orphan, st2, pg2, st1]).map((s) => s.id)).toEqual(['st_10', 'st_01', 'st_02', 'st_11']);
+  });
+});
+
+/* --------------------------------------------------------------- chains */
+
+describe('traceToBase', () => {
+  it('walks derived states back to their base through replayable transitions, bounded', () => {
+    const doc = sampleDocument();
+    const statesById = new Map(doc.states.items.map((s) => [s.id, s] as const));
+    const st3 = statesById.get('st_03');
+    const st2 = statesById.get('st_02');
+    const tr = doc.states.transitions[0];
+    if (st3 === undefined || st2 === undefined || tr === undefined) throw new Error('sample states missing');
+    const traced = traceToBase(doc.states.transitions, statesById, st3);
+    expect(traced).toMatchObject({ ok: true, base: { id: 'st_02' } });
+    if (traced.ok) expect(traced.steps.map((t) => t.id)).toEqual(['tr_01']);
+    expect(traceToBase(doc.states.transitions, statesById, st2)).toMatchObject({ ok: true, steps: [] });
+    // A side-effect producer cannot be replayed, so the state it produced cannot be re-entered.
+    const sideEffect = doc.states.transitions.map((t) => ({ ...t, sideEffects: true }));
+    const blocked = traceToBase(sideEffect, statesById, st3);
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.reason).toContain('no replayable transition produces st_03');
+    // A chain longer than MAX_REPLAY_CHAIN is refused.
+    const chain = new Map(statesById);
+    const long = [...doc.states.transitions];
+    let previous = 'st_03';
+    for (let i = 0; i < MAX_REPLAY_CHAIN + 1; i += 1) {
+      const id = `st_${(20 + i).toString()}`;
+      chain.set(id, { ...st3, id, parentStateId: previous });
+      long.push({ ...tr, id: `tr_${(20 + i).toString()}`, from: previous, to: id });
+      previous = id;
+    }
+    const last = chain.get(previous);
+    if (last === undefined) throw new Error('chain state missing');
+    const tooLong = traceToBase(long, chain, last);
+    expect(tooLong.ok).toBe(false);
+    if (!tooLong.ok) expect(tooLong.reason).toContain(`longer than ${MAX_REPLAY_CHAIN} steps`);
+  });
+});
+
+/* ------------------------------------------------------- generated tests */
+
+describe('parsePlaywrightReport', () => {
+  const ansi = (text: string): string => `\u001b[31m${text}\u001b[39m`;
+  const report = JSON.stringify({
+    config: { version: '1.64.0' },
+    suites: [
+      {
+        title: 'behavior.spec.ts',
+        specs: [],
+        suites: [
+          {
+            title: 'transitions recorded by scan scan_x',
+            specs: [
+              { title: 'tr_01: click tab "Link" at 1/1/1/0/1 (1280×800)', ok: true, tests: [{ status: 'expected', results: [{ status: 'passed', duration: 310, errors: [] }] }] },
+              {
+                title: 'tr_02: click button "Yearly billing (save 20%)" at 1/0/2 (1280×800)',
+                ok: false,
+                tests: [
+                  {
+                    status: 'unexpected',
+                    results: [
+                      {
+                        status: 'failed',
+                        duration: 5100,
+                        error: { message: `${ansi('Error: expect(locator).toHaveAttribute(expected)')}\n\nLocator: locator('[data-uidna-path="1/0/2"]')\nExpected string: "true"` },
+                        errors: [{ message: `${ansi('Error: expect(locator).toHaveAttribute(expected)')}\n\nExpected string: "true"\nReceived string: "false"` }],
+                      },
+                    ],
+                  },
+                ],
+              },
+              { title: 'tr_03: hover link "Home" at 0/0/0: not reproduced', ok: true, tests: [{ status: 'skipped', results: [{ status: 'skipped', duration: 0, errors: [] }] }] },
+              {
+                title: 'tr_04: click summary at 2/0 (390×844)',
+                ok: true,
+                tests: [{ status: 'flaky', projectName: 'chromium', results: [{ status: 'failed', duration: 100, errors: [{ message: 'boom' }] }, { status: 'passed', duration: 90, errors: [] }] }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    errors: [{ message: "Error: browserType.launch: Executable doesn't exist" }],
+    stats: { expected: 1, unexpected: 1, skipped: 1, flaky: 1 },
+  });
+
+  it('flattens nested suites into one record per test with status, transition id and a clean error excerpt', () => {
+    const parsed = unwrap(parsePlaywrightReport(report));
+    expect(parsed.stats).toEqual({ passed: 1, failed: 1, skipped: 1, flaky: 1 });
+    expect(parsed.tests.map((t) => [t.transitionId, t.status])).toEqual([
+      ['tr_01', 'passed'],
+      ['tr_02', 'failed'],
+      ['tr_03', 'skipped'],
+      ['tr_04', 'flaky'],
+    ]);
+    const failed = parsed.tests[1];
+    expect(failed?.error).toBe('Error: expect(locator).toHaveAttribute(expected) Expected string: "true" Received string: "false"');
+    expect(failed?.durationMs).toBe(5100);
+    expect(parsed.tests[3]?.title).toBe('tr_04: click summary at 2/0 (390×844) [chromium]');
+    expect(parsed.tests[3]?.error).toBe('boom');
+    expect(parsed.tests[3]?.durationMs).toBe(90);
+    expect(parsed.errors).toEqual(["Error: browserType.launch: Executable doesn't exist"]);
+  });
+
+  it('rejects text that is not a report with a tagged error and never throws', () => {
+    const notJson = parsePlaywrightReport('> playwright test\n');
+    expect(notJson.ok).toBe(false);
+    if (!notJson.ok) expect(notJson.error._tag).toBe('validation');
+    const wrongShape = parsePlaywrightReport('{"suites": "nope"}');
+    expect(wrongShape.ok).toBe(false);
+    expect(unwrap(parsePlaywrightReport('{}'))).toEqual({ tests: [], stats: { passed: 0, failed: 0, skipped: 0, flaky: 0 }, errors: [] });
+  });
+
+  it('reads transition ids from generated titles and bounds error excerpts', () => {
+    expect(transitionIdOfTitle('tr_12: fill textbox "Email" at 1/0/1/1/1 (1280×800)')).toBe('tr_12');
+    expect(transitionIdOfTitle('no transition was recorded')).toBeNull();
+    expect(errorExcerpt('  a\u001b[2m   b \n c  ')).toBe('a b c');
+    expect(errorExcerpt('x'.repeat(1000))).toHaveLength(401);
   });
 });
 

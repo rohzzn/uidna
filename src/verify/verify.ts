@@ -1,10 +1,14 @@
 /**
  * `verify_reconstruction`: build and serve the generated project, render
- * every base state at its viewport, compare it with the original capture
- * (pixels, geometry, computed styles, assets, responsive visibility), replay
- * the recorded transitions and compare what they changed, then write the
- * DiffReport. Deterministic and agent-free: every comparison that could not
- * be made is reported as a limitation or an unknown, never silently skipped.
+ * every base state of every page at its viewport, compare it with the
+ * original capture (pixels, geometry, computed styles, assets, responsive
+ * visibility), replay the recorded transitions (clicks, hovers, keys, fills,
+ * submits and same-origin navigations, reaching derived states through the
+ * chain of transitions that produced them) and compare what they changed,
+ * optionally run the generated Playwright behavior tests against the same
+ * server, then write the DiffReport. Deterministic and agent-free: every
+ * comparison that could not be made is reported as a limitation or an
+ * unknown, never silently skipped.
  */
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, resolve, sep } from 'node:path';
@@ -12,18 +16,20 @@ import { z } from 'zod';
 import type { Box, Transition, UiDnaDocument, UiNode, UiState } from '@rohzzn/uidna-schema';
 import type { WorkflowContext } from '../application/context.js';
 import type { ScanRecord } from '../application/records.js';
-import { openSession } from '../application/scan.js';
+import { openSession, pageKey } from '../application/scan.js';
 import { serveStatic, type StaticServer } from '../application/static-server.js';
 import type { ActionLocator, BrowserSession, UiAction } from '../browser/types.js';
 import { BoxMatchSchema, type BehaviorComparison, type DiffReport, type Finding, type FindingCategory, type FindingSeverity, type VisualComparison } from '../contracts/diff-report.js';
 import { isoNow } from '../domain/clock.js';
 import { describeError, toError, uidnaError } from '../domain/errors.js';
 import { err, ok, tryCatch, type Result } from '../domain/result.js';
-import { clickExclusion, DEFAULT_DENY_NAMES } from '../domain/safe-policy.js';
+import { clickExclusion, DEFAULT_DENY_NAMES, linkTarget, matchDenyName, type NavigationOptions, neverReplayed } from '../domain/safe-policy.js';
 import { buildProject } from '../generate/build.js';
 import { renderKindOf } from '../generate/model.js';
 import { countFindings, diffAttempts, findComponentId, findTokenId, FindingCounter, findingKey } from './findings.js';
+import { GENERATED_TESTS_FILE, GeneratedTestRunSchema, runGeneratedTests, type GeneratedTestRun, type GeneratedTestsOutcome } from './generated-tests.js';
 import { boxDrift, matchNodes, normalizeName, normalizeText, PATH_ATTRIBUTE, placeholderOf, type MatchResult } from './match.js';
+import { isLiteralRoute, orderByPage, pageRoute, pathnameOf, routeReached } from './pages.js';
 import { comparePixels, toPixelComparison, type PixelDiff } from './pixels.js';
 import { compareDeltas, diffRoleTrees, type RoleTreeDelta } from './roles.js';
 import { compareStyles, type StyleCategory } from './styles.js';
@@ -46,6 +52,8 @@ export interface VerifyInput {
   readonly evidenceId: string;
   /** Restrict the comparison to base states captured at these widths. */
   readonly viewportWidths?: readonly number[];
+  /** Also run the generated Playwright behavior tests (`tests/behavior.spec.ts`) against the served build. Default false. */
+  readonly runGeneratedTests?: boolean;
 }
 
 const InputSchema = z.object({
@@ -61,6 +69,7 @@ const InputSchema = z.object({
   label: z.string().nullable(),
   evidenceId: z.string().min(1),
   viewportWidths: z.array(z.number().int().positive()).optional(),
+  runGeneratedTests: z.boolean().optional(),
 });
 
 /** Maximum captured page height, the same as `scan_interface` uses so screenshots are comparable. */
@@ -73,6 +82,8 @@ const TAG_PATTERN = /^[a-z][a-z0-9-]*$/;
 const MAX_LISTED_ENTRIES = 12;
 /** Ids that may name artifact files under the attempt directory (`<id>.generated.png`, …); anything else never reaches the file system. */
 const SAFE_FILE_STEM = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/** Longest chain of producing transitions replayed to reach a derived from-state. */
+export const MAX_REPLAY_CHAIN = 8;
 
 const posix = (path: string): string => path.split(sep).join('/');
 
@@ -90,6 +101,8 @@ interface Run {
   readonly unknowns: string[];
   readonly artifacts: string[];
   readonly statesById: ReadonlyMap<string, UiState>;
+  /** Route the generated app registers per page (see `pageRoute`). */
+  readonly routeByPageId: ReadonlyMap<string, string>;
 }
 
 /** What one base state comparison produced, kept for the cross-viewport pass. */
@@ -166,14 +179,26 @@ function listEntries(entries: readonly string[]): string {
   return shown.join(', ') + (rest > 0 ? ` … and ${rest} more` : '');
 }
 
-/** URL of the generated app for an original state URL: the served root with the original path (when extension-less), query and hash. */
-export function generatedUrl(serverUrl: string, originalUrl: string): string {
+/**
+ * URL of the generated app for an original state URL: the served root with
+ * the page's route when one is given (the crawled path such as
+ * `/features.html`, which the generated app registers and the static server
+ * answers with `index.html`), else the original path when it is
+ * extension-less, plus the original query and hash.
+ */
+export function generatedUrl(serverUrl: string, originalUrl: string, route: string | null = null): string {
+  const literal = route !== null && isLiteralRoute(route) ? route : null;
   try {
     const original = new URL(originalUrl);
-    const pathname = extname(original.pathname) === '' ? original.pathname : '/';
+    const pathname = literal ?? (extname(original.pathname) === '' ? original.pathname : '/');
     return new URL(`${pathname}${original.search}${original.hash}`, serverUrl).toString();
   } catch {
-    return serverUrl;
+    if (literal === null) return serverUrl;
+    try {
+      return new URL(literal, serverUrl).toString();
+    } catch {
+      return serverUrl;
+    }
   }
 }
 
@@ -234,7 +259,7 @@ function styleSeverity(category: StyleCategory): FindingSeverity {
 
 /* ------------------------------------------------------------ navigation */
 
-/** Load the generated app for `state` at its viewport in a fresh document. Returns the limitations hit, or the reason it failed. */
+/** Load the generated app for `state` (its page's route) at its viewport in a fresh document. Returns the limitations hit, or the reason it failed. */
 async function loadState(run: Run, state: UiState, limitations: string[]): Promise<Result<void>> {
   const { session } = run;
   const resized = await session.setViewport(state.viewport);
@@ -242,7 +267,9 @@ async function loadState(run: Run, state: UiState, limitations: string[]): Promi
   // A fresh document for every load: same-URL navigations that differ only by hash would keep the previous page state.
   const blanked = await session.navigate('about:blank', { waitUntil: 'load', timeoutMs: 10_000 });
   if (!blanked.ok) limitations.push(`the previous document could not be unloaded before the load (${describeError(blanked.error)}); page state may carry over`);
-  const navigated = await session.navigate(generatedUrl(run.server.url, state.url), { waitUntil: 'load', timeoutMs: 30_000 });
+  const route = run.routeByPageId.get(state.pageId) ?? null;
+  if (route === null) limitations.push(`page ${state.pageId} of state ${state.id} is not listed in the document; the generated app was loaded at the original path instead of a registered route`);
+  const navigated = await session.navigate(generatedUrl(run.server.url, state.url, route), { waitUntil: 'load', timeoutMs: 30_000 });
   if (!navigated.ok) return err(toError(navigated.error, 'verify', 'load generated app'));
   if (navigated.value.status !== null && navigated.value.status >= 400) limitations.push(`the generated app responded with HTTP ${navigated.value.status}`);
   const stabilized = await session.stabilize();
@@ -515,9 +542,10 @@ function crossViewportFindings(run: Run, outcomes: readonly StateOutcome[]): voi
   for (const outcome of outcomes) {
     const { match, state, comparison, evidence } = outcome;
     if (match === null) continue;
+    // A node matched in another state of the same page is a responsive difference; other pages share nothing by path.
     const matchedElsewhere = (path: string): string | null => {
       for (const other of outcomes) {
-        if (other === outcome || other.match === null) continue;
+        if (other === outcome || other.match === null || other.state.pageId !== state.pageId) continue;
         if (other.match.matches.some((pair) => pair.original.path === path)) return other.state.id;
       }
       return null;
@@ -609,8 +637,80 @@ interface ReplayAttempt {
   readonly performed: boolean;
   readonly reason: string | null;
   readonly navigated: boolean;
+  /** URL of the generated app after the action. */
+  readonly url: string;
+  /** Redacted URLs of the non-GET requests the action triggered and the session blocked (fill and submit actions). */
+  readonly blockedRequests: readonly string[];
   /** The locator that performed the action; null when nothing was performed or the action had no target. */
   readonly used: Located | null;
+}
+
+/** How a transition is replayed. */
+interface ReplayOptions {
+  /** The recorded action led to another crawled page: a click may follow one same-origin navigation. */
+  readonly navigation: boolean;
+}
+
+/** Freeze animations again in the document a replayed action navigated to (the injected style is per document); a failure is a limitation of the capture that follows. */
+async function restabilize(run: Run, transitionId: string, what: string): Promise<void> {
+  const stabilized = await run.session.stabilize();
+  if (!stabilized.ok) run.limitations.push(`transition ${transitionId}: could not freeze animations in the document ${what} navigated to (${describeError(stabilized.error)}); the capture after it may be mid-animation`);
+}
+
+/** The deny phrase (safe policy) found on a node's name or text, or null. */
+function deniedName(node: UiNode, subtreeText: string | null): string | null {
+  return (
+    matchDenyName(node.name, DEFAULT_DENY_NAMES) ??
+    matchDenyName(node.text, DEFAULT_DENY_NAMES) ??
+    matchDenyName(node.attrs['aria-label'], DEFAULT_DENY_NAMES) ??
+    matchDenyName(node.attrs.title, DEFAULT_DENY_NAMES) ??
+    matchDenyName(subtreeText, DEFAULT_DENY_NAMES)
+  );
+}
+
+/**
+ * Why the safe policy would not follow a recorded navigation through `node`
+ * from `fromState`, or null when it would: the node must be a link outside
+ * any form whose href resolves (against the page URL, as the explorer
+ * resolved it) to another crawled page of the same origin, and carry no
+ * denied name. Decided from the recorded node, never from the document's
+ * `navigation` field alone, so an edited document cannot make the verifier
+ * click a submit control or follow a link the explorer refused.
+ */
+export function navigationExclusion(dna: Pick<UiDnaDocument, 'app'>, fromState: Pick<UiState, 'url' | 'pageId'>, node: UiNode, subtreeText: string | null): string | null {
+  if (node.inForm) return 'inside a form';
+  const tag = node.tag.toLowerCase();
+  const href = node.attrs.href;
+  if (tag !== 'a' || href === undefined) return `<${tag}> is not a link with an href (a navigation is replayed only through the link the original followed)`;
+  if (href.trim().startsWith('#')) return 'fragment link: scroll only';
+  const navigation: NavigationOptions = {
+    pageUrl: fromState.url,
+    pageId: fromState.pageId,
+    pagesByKey: new Map(dna.app.pages.map((page) => [pageKey(page.url), page.id] as const)),
+    keyOf: pageKey,
+  };
+  const link = linkTarget(node, navigation, DEFAULT_DENY_NAMES, subtreeText);
+  if (link === null) return `<${tag}> is not a link the safe policy can resolve`;
+  return link.kind === 'navigate' ? null : link.reason;
+}
+
+/**
+ * Why the forms policy would not submit through `node`, or null when it
+ * would: the target must be the `<form>` itself (denied names checked on its
+ * name, aria-label and title) or a submit control without a denied name,
+ * the only targets `classifyForms` ever chooses.
+ */
+export function submitExclusion(node: UiNode, subtreeText: string | null): string | null {
+  const tag = node.tag.toLowerCase();
+  if (tag === 'form') {
+    const denied = matchDenyName(node.name, DEFAULT_DENY_NAMES) ?? matchDenyName(node.attrs['aria-label'], DEFAULT_DENY_NAMES) ?? matchDenyName(node.attrs.title, DEFAULT_DENY_NAMES);
+    return denied === null ? null : `denied name: ${denied}`;
+  }
+  const type = node.attrs.type?.trim().toLowerCase();
+  const isSubmitControl = (tag === 'button' && type !== 'button' && type !== 'reset') || (tag === 'input' && (type === 'submit' || type === 'image'));
+  if (!isSubmitControl) return `<${tag}> is neither a form nor a submit control (the forms policy submits only through those)`;
+  const denied = deniedName(node, subtreeText);
+  return denied === null ? null : `denied name: ${denied}`;
 }
 
 /**
@@ -618,13 +718,18 @@ interface ReplayAttempt {
  * Strategies in order: role, accessible name and position (the locator the
  * report describes), the same with the normalized name, the generator's
  * `data-uidna-path` attribute, then rendered tag and own text. A click is
- * refused when the safe policy would not allow it on the recorded target.
+ * refused when the safe policy would not allow it on the recorded target;
+ * for a navigation transition the link is clicked (the navigation is the
+ * point) only when the safe policy would follow it (`navigationExclusion`),
+ * and the click may follow one same-origin navigation. A submit is refused
+ * when the forms policy would not submit through the recorded target
+ * (`submitExclusion`).
  */
-async function performTransition(run: Run, transition: Transition, fromState: UiState): Promise<ReplayAttempt> {
+async function performTransition(run: Run, transition: Transition, fromState: UiState, options: ReplayOptions = { navigation: false }): Promise<ReplayAttempt> {
   const { session } = run;
   const { action } = transition;
   const target = action.target;
-  const refused = (reason: string): ReplayAttempt => ({ performed: false, reason, navigated: false, used: null });
+  const refused = (reason: string): ReplayAttempt => ({ performed: false, reason, navigated: false, url: session.currentUrl(), blockedRequests: [], used: null });
   const act = async (located: Located | null): Promise<ReplayAttempt> => {
     let uiAction: UiAction;
     if (action.type === 'key') {
@@ -634,21 +739,38 @@ async function performTransition(run: Run, transition: Transition, fromState: Ui
       if (located === null) return refused('the recorded action has no target');
       if (action.type === 'fill') uiAction = { kind: 'fill', target: located.locator, value: action.value ?? '' };
       else if (action.type === 'submit') uiAction = { kind: 'submit', target: located.locator };
+      else if (action.type === 'click' && options.navigation) uiAction = { kind: 'click', target: located.locator, allowNavigation: 'same-origin' };
       else uiAction = { kind: action.type, target: located.locator };
     }
     const outcome = await session.act(uiAction);
     if (!outcome.ok) return refused(describeError(outcome.error));
-    return { performed: outcome.value.performed, reason: outcome.value.reason ?? null, navigated: outcome.value.navigated, used: outcome.value.performed ? located : null };
+    return {
+      performed: outcome.value.performed,
+      reason: outcome.value.reason ?? null,
+      navigated: outcome.value.navigated,
+      url: outcome.value.url,
+      blockedRequests: outcome.value.blockedRequests ?? [],
+      used: outcome.value.performed ? located : null,
+    };
   };
   if (target === null) return act(null);
 
   const originalNode = fromState.nodes.find((node) => node.id === target.nodeId) ?? fromState.nodes.find((node) => node.path === target.nodePath);
-  if (action.type === 'click') {
-    // The safe policy decides clicks from the recorded node (forms, links, submit controls, denied names); a target it cannot check is not clicked.
-    if (originalNode === undefined) return refused(`target node ${target.nodeId} is not in state ${fromState.id}, so the safe policy could not be checked; the click was not replayed`);
+  if (action.type === 'click' || action.type === 'submit') {
+    // The policies decide clicks and submits from the recorded node (forms, links, submit controls, denied names); a target they cannot check is not acted on.
+    if (originalNode === undefined) return refused(`target node ${target.nodeId} is not in state ${fromState.id}, so the ${action.type === 'submit' ? 'forms' : 'safe'} policy could not be checked; the ${action.type} was not replayed`);
     const byId = new Map(fromState.nodes.map((node) => [node.id, node] as const));
-    const exclusion = clickExclusion(originalNode, DEFAULT_DENY_NAMES, subtreeTextOf(originalNode, byId));
-    if (exclusion !== null) return refused(`the safe policy does not click this target (${exclusion}); the click was not replayed`);
+    const subtree = subtreeTextOf(originalNode, byId);
+    if (action.type === 'submit') {
+      const exclusion = submitExclusion(originalNode, subtree);
+      if (exclusion !== null) return refused(`the forms policy does not submit through this target (${exclusion}); the submit was not replayed`);
+    } else if (options.navigation) {
+      const exclusion = navigationExclusion(run.dna, fromState, originalNode, subtree);
+      if (exclusion !== null) return refused(`the safe policy does not follow this link (${exclusion}); the navigation was not replayed`);
+    } else {
+      const exclusion = clickExclusion(originalNode, DEFAULT_DENY_NAMES, subtree);
+      if (exclusion !== null) return refused(`the safe policy does not click this target (${exclusion}); the click was not replayed`);
+    }
   }
   const locators: Located[] = [];
   if (target.role !== null) {
@@ -696,17 +818,57 @@ function readTargetState(node: UiNode | undefined, property: string): string {
   return node.attrs[property.slice('attrs.'.length)] ?? 'absent';
 }
 
+export { neverReplayed };
+
+/** The base state a derived state descends from and the transitions that replay the descent, or why none could be traced. */
+type Trace = { readonly ok: true; readonly base: UiState; readonly steps: readonly Transition[] } | { readonly ok: false; readonly reason: string };
+
+/**
+ * Trace a state back to a base state through the transitions that produced
+ * it: the one from its recorded parent when it is replayable, else any
+ * replayable producer. Side-effect transitions and navigations never
+ * produce a re-enterable derived state, and the chain is bounded.
+ */
+export function traceToBase(transitions: readonly Transition[], statesById: ReadonlyMap<string, UiState>, state: UiState): Trace {
+  const steps: Transition[] = [];
+  const seen = new Set<string>([state.id]);
+  let current = state;
+  while (current.kind !== 'base') {
+    if (steps.length >= MAX_REPLAY_CHAIN) return { ok: false, reason: `the chain of transitions producing ${state.id} is longer than ${MAX_REPLAY_CHAIN} steps` };
+    const producers = transitions.filter((t) => t.to === current.id && t.from !== current.id && !t.sideEffects && (t.navigation ?? null) === null && statesById.has(t.from) && !seen.has(t.from));
+    const via = producers.find((t) => t.from === current.parentStateId) ?? producers[0];
+    const from = via === undefined ? undefined : statesById.get(via.from);
+    if (via === undefined || from === undefined) {
+      return { ok: false, reason: `no replayable transition produces ${current.id} (a derived state reached through a side effect or a navigation cannot be re-entered)` };
+    }
+    steps.unshift(via);
+    seen.add(from.id);
+    current = from;
+  }
+  return { ok: true, base: current, steps };
+}
+
 /**
  * Replay one transition against the generated app and compare what it
- * changed. Returns null, after recording an unknown, when the transition
- * cannot be described at all (neither of its states is in the document and
- * it records no viewport to report under).
+ * changed. Returns null, after recording an unknown, when the transition is
+ * never replayed (it caused side effects when it was observed) or cannot be
+ * described at all (neither of its states is in the document and it records
+ * no viewport to report under).
  */
 async function replayTransition(run: Run, transition: Transition): Promise<BehaviorComparison | null> {
   const { ctx, scan, dna, session, attemptDir, statesById } = run;
   const fromState = statesById.get(transition.from);
   const toState = statesById.get(transition.to);
   const target = transition.action.target;
+  const navigation = transition.navigation ?? null;
+  // A transition that caused a non-GET request is never repeated. A recorded same-origin navigation (a crawled
+  // page) is replayed as such; one that also sent a non-GET request is not.
+  if (neverReplayed(transition)) {
+    run.unknowns.push(
+      `transition ${transition.id}: not replayed because it caused side effects when it was observed (${transition.network.nonGet} non-GET request(s)${navigation === null && transition.network.nonGet === 0 ? ', a navigation' : ''}); the reconstruction of this ${transition.action.type} is unverified`,
+    );
+    return null;
+  }
   // The viewport the comparison is reported under: the from-state's, else the to-state's, else the one the transition recorded.
   const viewport = fromState?.viewport ?? toState?.viewport ?? transition.provenance.viewport;
   if (viewport === undefined) {
@@ -720,7 +882,12 @@ async function replayTransition(run: Run, transition: Transition): Promise<Behav
     fromStateId: transition.from,
     toStateId: transition.to,
     viewport: { ...viewport },
-    action: { type: transition.action.type, target: target === null ? null : { ...target }, ...(transition.action.key === undefined ? {} : { key: transition.action.key }) },
+    action: {
+      type: transition.action.type,
+      target: target === null ? null : { ...target },
+      ...(transition.action.key === undefined ? {} : { key: transition.action.key }),
+      ...(transition.action.value === undefined ? {} : { value: transition.action.value }),
+    },
     locator,
     replayed: false,
     reason: null,
@@ -737,44 +904,45 @@ async function replayTransition(run: Run, transition: Transition): Promise<Behav
   if (fromState === undefined || toState === undefined) {
     return skip('the transition references a state the document does not contain', `transition ${transition.id}: skipped, its from or to state is not in the document`);
   }
-  if (transition.sideEffects) {
-    return skip('the transition caused side effects when it was observed; it is never replayed', `transition ${transition.id}: not replayed because it caused side effects (a non-GET request or a navigation)`);
-  }
   if (!SAFE_FILE_STEM.test(transition.id)) {
     return skip('the transition id is not a safe artifact file name', `transition ${transition.id}: skipped, its id is not a safe artifact file name`);
   }
 
-  // Reach the from-state: a base state is loaded directly; a derived state is reached by replaying the transition that produced it (one level).
-  let producer: Transition | null = null;
-  let entry: UiState = fromState;
-  if (fromState.kind !== 'base') {
-    const found = dna.states.transitions.find((t) => t.to === fromState.id && !t.sideEffects && statesById.get(t.from)?.kind === 'base');
-    const producerFrom = found === undefined ? undefined : statesById.get(found.from);
-    if (found === undefined || producerFrom === undefined) {
-      return skip(`from-state ${fromState.id} is derived and no replayable transition from a base state produces it`, `transition ${transition.id}: skipped, from-state ${fromState.id} is unreachable (derived, no producing transition from a base state)`);
-    }
-    producer = found;
-    entry = producerFrom;
+  // Reach the from-state: a base state is loaded directly; a derived state is reached by replaying the chain of
+  // transitions that produced it from its base state (bounded by MAX_REPLAY_CHAIN).
+  const trace = traceToBase(dna.states.transitions, statesById, fromState);
+  if (!trace.ok) {
+    return skip(`from-state ${fromState.id} is unreachable: ${trace.reason}`, `transition ${transition.id}: skipped, from-state ${fromState.id} is unreachable (${trace.reason})`);
   }
   const limitations: string[] = [];
-  const loaded = await loadState(run, entry, limitations);
+  const loaded = await loadState(run, trace.base, limitations);
   for (const limitation of limitations) run.limitations.push(`transition ${transition.id}: ${limitation}`);
   if (!loaded.ok) return skip(loaded.error.message, `transition ${transition.id}: skipped, ${loaded.error.message}`);
-  if (producer !== null) {
-    const reached = await performTransition(run, producer, entry);
+  for (const step of trace.steps) {
+    const stepFrom = statesById.get(step.from);
+    if (stepFrom === undefined) return skip(`from-state ${fromState.id} unreachable: state ${step.from} is missing`, `transition ${transition.id}: skipped, state ${step.from} of the producing chain is missing`);
+    const reached = await performTransition(run, step, stepFrom);
     if (!reached.performed) {
-      return skip(`from-state ${fromState.id} unreachable: replaying ${producer.id} failed (${reached.reason ?? 'not performed'})`, `transition ${transition.id}: skipped, from-state ${fromState.id} could not be reached by replaying ${producer.id} (${reached.reason ?? 'not performed'})`);
+      return skip(
+        `from-state ${fromState.id} unreachable: replaying ${step.id} failed (${reached.reason ?? 'not performed'})`,
+        `transition ${transition.id}: skipped, from-state ${fromState.id} could not be reached by replaying ${step.id} (${reached.reason ?? 'not performed'})`,
+      );
+    }
+    if (reached.blockedRequests.length > 0) run.limitations.push(`transition ${transition.id}: replaying ${step.id} on the way to ${fromState.id} triggered ${reached.blockedRequests.length} blocked request(s); ${step.id} has its own replay entry`);
+    if (reached.navigated) {
+      run.limitations.push(`transition ${transition.id}: replaying ${step.id} on the way to ${fromState.id} navigated the generated app to ${pathOf(reached.url)}; the from-state may not be the recorded one`);
+      await restabilize(run, transition.id, `replaying ${step.id}`);
     }
     const settled = await session.waitForStability({ timeoutMs: 5_000 });
-    if (!settled.ok) run.limitations.push(`transition ${transition.id}: the stability wait after replaying ${producer.id} failed (${describeError(settled.error)})`);
-    else if (!settled.value.stable) run.limitations.push(`transition ${transition.id}: the generated page kept changing for ${settled.value.waitedMs}ms after replaying ${producer.id}; the from-state capture may be mid-transition`);
+    if (!settled.ok) run.limitations.push(`transition ${transition.id}: the stability wait after replaying ${step.id} failed (${describeError(settled.error)})`);
+    else if (!settled.value.stable) run.limitations.push(`transition ${transition.id}: the generated page kept changing for ${settled.value.waitedMs}ms after replaying ${step.id}; the from-state capture may be mid-transition`);
   }
 
   const before = await session.capture();
   if (!before.ok) return skip(`the generated app could not be captured before the action (${describeError(before.error)})`, `transition ${transition.id}: skipped, capture before the action failed`);
   const targetMatch = target === null ? null : (matchNodes(fromState, before.value).byOriginalId.get(target.nodeId) ?? null);
 
-  const attempt = await performTransition(run, transition, fromState);
+  const attempt = await performTransition(run, transition, fromState, { navigation: navigation !== null });
   const evidenceBase = [`states/${fromState.id}/capture.json`, `states/${toState.id}/capture.json`];
   if (!attempt.performed) {
     run.unknowns.push(`transition ${transition.id}: the target could not be located or acted on in the generated app (${attempt.reason ?? 'not performed'})`);
@@ -799,6 +967,8 @@ async function replayTransition(run: Run, transition: Transition): Promise<Behav
   if (attempt.used !== null && usedLocator?.role === undefined) {
     run.limitations.push(`transition ${transition.id}: the target was located by ${attempt.used.label}, not by role and name; the locator in the report is the recorded target's`);
   }
+  // A navigation loaded a new document: the animation freeze `loadState` injected left with the old one.
+  if (attempt.navigated) await restabilize(run, transition.id, 'the action');
   const settled = await session.waitForStability({ timeoutMs: 5_000 });
   if (!settled.ok) run.limitations.push(`transition ${transition.id}: the stability wait after the action failed (${describeError(settled.error)})`);
   else if (!settled.value.stable) run.limitations.push(`transition ${transition.id}: the generated page kept changing for ${settled.value.waitedMs}ms after the action; the capture may be mid-transition`);
@@ -835,8 +1005,36 @@ async function replayTransition(run: Run, transition: Transition): Promise<Behav
     );
   }
 
-  // A replayable transition never navigated when it was observed (a navigation marks it as a side effect); one here is a behavior difference.
-  if (attempt.navigated) {
+  // Navigation: a recorded navigation must reach the target page's route (the crawled path or its extension-less
+  // alias); any other transition never navigated when it was observed, so a navigation here is a behavior difference.
+  let navigationMatch = true;
+  if (navigation !== null) {
+    const expectedRoute = run.routeByPageId.get(navigation.toPageId) ?? null;
+    const actualPath = pathnameOf(after.value.url);
+    const reached = expectedRoute !== null ? routeReached(expectedRoute, actualPath) : actualPath === pathnameOf(navigation.url);
+    if (expectedRoute === null) run.limitations.push(`transition ${transition.id}: page ${navigation.toPageId} is not listed in the document; the destination was compared with the recorded URL path instead of a registered route`);
+    if (toState.pageId !== navigation.toPageId) run.limitations.push(`transition ${transition.id}: its to-state ${toState.id} belongs to page ${toState.pageId}, not to the recorded destination page ${navigation.toPageId}; the role tree was compared with ${toState.id}`);
+    if (!reached) {
+      navigationMatch = false;
+      findings.push(
+        makeFinding(run, {
+          category: 'behavior',
+          severity: 'high',
+          stateId: fromState.id,
+          viewport: fromState.viewport,
+          property: 'navigation',
+          node: targetNode,
+          transitionId: transition.id,
+          original: `navigated to ${pathOf(navigation.url)} (page ${navigation.toPageId})`,
+          generated: attempt.navigated ? `navigated to ${pathOf(after.value.url)}` : 'stayed on the page',
+          delta: null,
+          message: `the action of ${transition.id} ${attempt.navigated ? `navigated the generated app to ${pathOf(after.value.url)}` : 'did not navigate the generated app'}; the original reached page ${navigation.toPageId} at ${pathOf(navigation.url)}${expectedRoute === null ? '' : ` (route ${expectedRoute})`}`,
+          evidence,
+        }),
+      );
+    }
+  } else if (attempt.navigated) {
+    navigationMatch = false;
     findings.push(
       makeFinding(run, {
         category: 'behavior',
@@ -855,9 +1053,29 @@ async function replayTransition(run: Run, transition: Transition): Promise<Behav
     );
   }
 
-  // The target's expanded/open state must change the way it did in the original.
+  // A generated form never performs a request: the original's submission was blocked during the scan and is not reproduced.
+  if (attempt.blockedRequests.length > 0) {
+    findings.push(
+      makeFinding(run, {
+        category: 'behavior',
+        severity: 'high',
+        stateId: fromState.id,
+        viewport: fromState.viewport,
+        property: 'request',
+        node: targetNode,
+        transitionId: transition.id,
+        original: 'no request was sent',
+        generated: `${attempt.blockedRequests.length} blocked request(s): ${listEntries(attempt.blockedRequests)}`,
+        delta: null,
+        message: `the generated form tried to send ${attempt.blockedRequests.length} request(s) when ${transition.id} was replayed (${listEntries(attempt.blockedRequests)}); UI DNA blocked them; a generated form must not perform a request`,
+        evidence,
+      }),
+    );
+  }
+
+  // The target's expanded/open state must change the way it did in the original (not for a navigation: the to-state is another page).
   let stateMatch = true;
-  if (target !== null) {
+  if (target !== null && navigation === null) {
     const changes = targetStateChange(fromState, toState, target);
     if (changes.length > 0) {
       if (targetMatch === null) {
@@ -905,12 +1123,99 @@ async function replayTransition(run: Run, transition: Transition): Promise<Behav
     locator: reportedLocator,
     replayed: true,
     reason: null,
-    roleTreeMatch: deltas.match && stateMatch && !attempt.navigated,
+    roleTreeMatch: deltas.match && stateMatch && navigationMatch && attempt.blockedRequests.length === 0,
     roleTreeDiff: { missing: [...deltas.missing], extra: [...deltas.extra] },
     pixels,
     generatedScreenshot: afterRelative,
     findings,
   };
+}
+
+/* -------------------------------------------------------- generated tests */
+
+/**
+ * Turn a generated test run into evidence: one `behavior` finding per failed
+ * test (attached to the replay of the same transition when there is one,
+ * else to the comparison of the base state the test opens), an unknown per
+ * skipped test, a limitation when the tests could not run or their report
+ * could not be read.
+ */
+function recordGeneratedTests(run: Run, result: GeneratedTestsOutcome, outcomes: readonly StateOutcome[], behavioral: readonly BehaviorComparison[]): void {
+  if (!result.ran) {
+    run.limitations.push(`generated tests were not run: ${result.reason ?? 'unknown reason'}`);
+    return;
+  }
+  const { statesById } = run;
+  const transitionsById = new Map(run.dna.states.transitions.map((t) => [t.id, t] as const));
+  // Finding evidence is scan-relative like every other artifact path; the outcome carries absolute paths.
+  const evidence = [result.reportPath, result.logPath].filter((path): path is string => path !== null).map((path) => run.ctx.store.relativePath(run.scan.scanId, path));
+  const place = (transitionId: string | null, draft: Omit<FindingDraft, 'stateId' | 'viewport' | 'node' | 'transitionId' | 'evidence'>): void => {
+    const transition = transitionId === null ? undefined : transitionsById.get(transitionId);
+    const fromState = transition === undefined ? undefined : statesById.get(transition.from);
+    const replay = transitionId === null ? undefined : behavioral.find((b) => b.transitionId === transitionId);
+    const trace = fromState === undefined ? null : traceToBase(run.dna.states.transitions, statesById, fromState);
+    const hostOutcome = outcomes.find((o) => trace?.ok === true && o.state.id === trace.base.id) ?? outcomes[0];
+    const host = replay?.findings ?? hostOutcome?.comparison.findings;
+    if (host === undefined) {
+      run.limitations.push(`generated test finding could not be attached to any comparison: ${draft.message}`);
+      return;
+    }
+    const state = fromState ?? hostOutcome?.state;
+    if (state === undefined) {
+      run.limitations.push(`generated test finding has no state to report under: ${draft.message}`);
+      return;
+    }
+    const targetNode = transition?.action.target === null || transition === undefined || fromState === undefined ? null : (fromState.nodes.find((node) => node.id === transition.action.target?.nodeId) ?? null);
+    host.push(makeFinding(run, { ...draft, stateId: state.id, viewport: state.viewport, node: targetNode, transitionId: transition?.id ?? null, evidence }));
+  };
+  for (const test of result.tests) {
+    // The generated suite decides for itself what it replays; it runs outside UI DNA's network guard (its submit
+    // helper only prevents the native submission), so a transition the verifier never repeats is reported when it ran.
+    const exercised = test.transitionId === null ? undefined : transitionsById.get(test.transitionId);
+    if (test.status !== 'skipped' && exercised !== undefined && neverReplayed(exercised)) {
+      run.limitations.push(
+        `generated test "${test.title}" exercised ${exercised.id}, which caused side effects when it was observed (${exercised.network.nonGet} non-GET request(s)); the verifier never replays it, and the generated suite runs outside UI DNA's network guard`,
+      );
+    }
+    if (test.status === 'skipped') {
+      run.unknowns.push(`generated test skipped: ${test.title}`);
+    } else if (test.status === 'flaky') {
+      run.limitations.push(`generated test "${test.title}" passed only on retry`);
+    } else if (test.status === 'failed') {
+      place(test.transitionId, {
+        category: 'behavior',
+        severity: 'high',
+        property: 'generated-test',
+        original: 'the recorded transition',
+        generated: `failed generated test`,
+        delta: null,
+        message: `generated test "${test.title}" failed${test.error === null ? '' : `: ${test.error}`}`,
+      });
+    }
+  }
+  for (const error of result.errors) run.limitations.push(`the generated test run reported an error outside any test: ${error}`);
+  if (result.parseError !== null) run.limitations.push(`the generated test report could not be read (${result.parseError}); only the exit code ${result.exitCode ?? 'null'} of the run is known`);
+  if (result.timedOut) {
+    place(null, {
+      category: 'behavior',
+      severity: 'high',
+      property: 'generated-test-run',
+      original: 'the generated tests complete',
+      generated: `timed out after ${result.durationMs}ms`,
+      delta: null,
+      message: `the generated test run (${result.command}) timed out after ${result.durationMs}ms`,
+    });
+  } else if (result.exitCode !== 0 && result.stats.failed === 0) {
+    place(null, {
+      category: 'behavior',
+      severity: 'high',
+      property: 'generated-test-run',
+      original: 'exit code 0',
+      generated: `exit code ${result.exitCode ?? 'null'}`,
+      delta: null,
+      message: `the generated test run (${result.command}) exited with code ${result.exitCode ?? 'null'} without reporting a failing test${result.errors.length > 0 ? ` (${result.errors[0] ?? ''})` : ''}; see ${result.logPath ?? 'the npm output'}`,
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ main */
@@ -925,6 +1230,7 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
     label: input.label,
     evidenceId: input.evidenceId,
     viewportWidths: input.viewportWidths === undefined ? undefined : [...input.viewportWidths],
+    runGeneratedTests: input.runGeneratedTests,
   });
   if (!parsed.success) return err(uidnaError('validation', `invalid verify input: ${parsed.error.issues.map((i) => `${i.path.map(String).join('.')}: ${i.message}`).join('; ')}`));
   const { ctx, scan, dna } = input;
@@ -935,7 +1241,11 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
   const unknowns: string[] = [];
   const artifacts: string[] = [];
 
-  const baseStates = dna.states.items.filter((s) => s.kind === 'base').sort((a, b) => b.viewport.width - a.viewport.width || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // Base states grouped by page in document order, widest viewport first within a page.
+  const baseStates = orderByPage(
+    dna,
+    dna.states.items.filter((s) => s.kind === 'base'),
+  );
   let selected = baseStates;
   if (options.viewportWidths !== undefined) {
     const widths = new Set(options.viewportWidths);
@@ -946,12 +1256,15 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
   }
   if (selected.length === 0) return err(uidnaError('validation', `scan ${scan.scanId} has no base state to compare${options.viewportWidths === undefined ? '' : ' at the requested viewports'}`));
   const transitions = dna.states.transitions;
-  const total = (options.build ? 1 : 0) + selected.length + transitions.length + 1;
+  const runTests = options.runGeneratedTests ?? false;
+  const total = (options.build ? 1 : 0) + selected.length + transitions.length + (runTests ? 1 : 0) + 1;
   let current = 0;
   const progress = (message: string): void => {
     current += 1;
     ctx.progress.report({ message, current, total });
   };
+  /** Read afresh each time: a property narrowed by an earlier check would not see an abort that happened during an await. */
+  const aborted = (): boolean => ctx.signal?.aborted === true;
 
   if (options.build) {
     progress(`building ${outDir}`);
@@ -994,6 +1307,11 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
     return opened;
   }
   const session = opened.value;
+  const routeByPageId = new Map<string, string>();
+  for (const page of dna.app.pages) {
+    const route = pageRoute(dna, page.id);
+    if (route !== null) routeByPageId.set(page.id, route);
+  }
   const run: Run = {
     ctx,
     scan,
@@ -1007,10 +1325,12 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
     unknowns,
     artifacts,
     statesById: new Map(dna.states.items.map((s) => [s.id, s] as const)),
+    routeByPageId,
   };
 
   const outcomes: StateOutcome[] = [];
   const behavioral: BehaviorComparison[] = [];
+  let generatedTests: GeneratedTestRun | null = null;
   let cancelled = false;
   try {
     for (const state of selected) {
@@ -1018,7 +1338,7 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
         cancelled = true;
         break;
       }
-      progress(`comparing ${state.id} at ${state.viewport.width}×${state.viewport.height}`);
+      progress(`comparing ${state.id} (page ${state.pageId}) at ${state.viewport.width}×${state.viewport.height}`);
       outcomes.push(await compareState(run, state));
     }
     if (!cancelled) crossViewportFindings(run, outcomes);
@@ -1027,9 +1347,38 @@ export async function verifyReconstruction(input: VerifyInput): Promise<Result<D
         cancelled = true;
         break;
       }
-      progress(`replaying ${transition.id} (${transition.action.type})`);
+      progress(`replaying ${transition.id} (${transition.action.type}${transition.navigation ? ', navigation' : ''})`);
       const replayed = await replayTransition(run, transition);
       if (replayed !== null) behavioral.push(replayed);
+    }
+    if (runTests && !cancelled && ctx.signal?.aborted !== true) {
+      progress('running the generated behavior tests');
+      const result = await runGeneratedTests({ outDir, serverUrl: server.url, port: server.port, artifactDir: attemptDir, ...(ctx.signal === undefined ? {} : { signal: ctx.signal }) });
+      // A cancellation kills the npm child mid-run: its partial outcome is not evidence, so no report is written from it.
+      if (aborted()) {
+        cancelled = true;
+      } else {
+        recordGeneratedTests(run, result, outcomes, behavioral);
+        const relativeOrNull = (path: string | null): string | null => (path === null ? null : ctx.store.relativePath(scan.scanId, path));
+        generatedTests = {
+          ran: result.ran,
+          reason: result.reason,
+          command: result.command,
+          exitCode: result.exitCode,
+          timedOut: result.timedOut,
+          durationMs: result.durationMs,
+          reportPath: relativeOrNull(result.reportPath),
+          logPath: relativeOrNull(result.logPath),
+          parseError: result.parseError,
+          stats: { ...result.stats },
+          tests: result.tests.map((t) => ({ ...t })),
+        };
+        const relative = `verify/attempt-${options.attempt}/${GENERATED_TESTS_FILE}`;
+        const wrote = await ctx.store.writeJson(scan.scanId, relative, GeneratedTestRunSchema, generatedTests);
+        if (wrote.ok) artifacts.push(relative);
+        else limitations.push(`the generated test run was not stored (${describeError(wrote.error)})`);
+        for (const path of [generatedTests.reportPath, generatedTests.logPath]) if (path !== null) artifacts.push(path);
+      }
     }
   } finally {
     await session.close();

@@ -1,9 +1,11 @@
 /**
- * Verification layer: renders the generated project, compares it with the
- * original captures, replays recorded transitions and writes the DiffReport
- * and the static HTML report. Deterministic and agent-free.
+ * Verification layer: renders the generated project page by page, compares it
+ * with the original captures, replays recorded transitions (including
+ * navigations, fills and submits), optionally runs the generated Playwright
+ * tests, and writes the DiffReport and the static HTML report. Deterministic
+ * and agent-free.
  */
-export { verifyReconstruction, generatedUrl, pathSelector, textSelector } from './verify.js';
+export { verifyReconstruction, generatedUrl, pathSelector, textSelector, traceToBase, navigationExclusion, submitExclusion, neverReplayed, MAX_REPLAY_CHAIN } from './verify.js';
 export type { VerifyInput } from './verify.js';
 export { renderReport } from './report.js';
 export type { RenderReportInput, RenderedReport } from './report.js';
@@ -18,3 +20,19 @@ export type { StyleCategory, StyleComparison, StyleDifference, StyleThresholds }
 export { findingKey, diffAttempts, allFindings, countFindings, findTokenId, findComponentId, severityRank, FindingCounter } from './findings.js';
 export type { AttemptDiff } from './findings.js';
 export { escapeHtml, escapeAttr, attr, safeCssColor, formatNumber, formatPercent } from './html.js';
+export { pageOf, pageRoute, isLiteralRoute, routeReached, pathnameOf, orderByPage } from './pages.js';
+export {
+  runGeneratedTests,
+  parsePlaywrightReport,
+  transitionIdOfTitle,
+  errorExcerpt,
+  GeneratedTestRunSchema,
+  GeneratedTestResultSchema,
+  GENERATED_TESTS_FILE,
+  GENERATED_TESTS_RAW_FILE,
+  GENERATED_TESTS_LOG_FILE,
+  GENERATED_TESTS_SCRIPT,
+  GENERATED_TESTS_TIMEOUT_MS,
+  MAX_ERROR_EXCERPT,
+} from './generated-tests.js';
+export type { GeneratedTestRun, GeneratedTestResult, GeneratedTestsInput, GeneratedTestsOutcome, ParsedReport } from './generated-tests.js';

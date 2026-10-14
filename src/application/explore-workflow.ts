@@ -9,14 +9,46 @@ import { isoNow } from '../domain/clock.js';
 import { describeError, uidnaError } from '../domain/errors.js';
 import { envelope, type Envelope } from '../domain/evidence.js';
 import { err, ok, type Result } from '../domain/result.js';
-import { exploreInteractions as runExplorer } from '../explore/index.js';
+import type { Transition } from '@rohzzn/uidna-schema';
+import { effectKey, exploreInteractions as runExplorer } from '../explore/index.js';
 import type { WorkflowContext } from './context.js';
 import { withOutRoot } from './context.js';
+import type { ExploreRecord, ScanRecord } from './records.js';
 import { stateSummaries } from './inspect.js';
 import { reassembleDna, resolveLimits } from './scan.js';
 
 /** How many skipped interactions are spelled out in the prose `unknowns` list (the structured list is always complete). */
 const MAX_SKIPPED_DETAILS = 40;
+
+/**
+ * The `<pageId>:<nodePath>` keys of the controls an earlier run must not act on again: the keys it
+ * persisted, or, for records written before it did, the controls whose attempt caused a side effect
+ * or left the crawl (a navigation without a transition), and the targets of side-effect transitions.
+ * A navigation that produced a transition between two crawled pages is not a side effect: it is
+ * explored again. Keys are scoped to the page of the state the action started from.
+ */
+export function knownSideEffects(
+  scan: Pick<ScanRecord, 'pageId'> & { readonly states: readonly Pick<ScanRecord['states'][number], 'stateId' | 'pageId'>[] },
+  previous: Pick<ExploreRecord, 'attempted' | 'sideEffectKeys'> | null,
+  previousTransitions: readonly Pick<Transition, 'from' | 'sideEffects' | 'action'>[],
+): Set<string> {
+  const keys = new Set<string>(previous?.sideEffectKeys ?? []);
+  const pageOf = new Map(scan.states.map((state) => [state.stateId, state.pageId ?? scan.pageId] as const));
+  const add = (stateId: string, nodePath: string | undefined): void => {
+    if (nodePath === undefined) return;
+    keys.add(effectKey(pageOf.get(stateId) ?? scan.pageId, nodePath));
+  };
+  if (previous !== null && previous.sideEffectKeys === undefined) {
+    for (const attempt of previous.attempted) {
+      const leftCrawl = attempt.outcome === 'navigated' && attempt.transitionId === null;
+      if (attempt.outcome === 'side-effect' || leftCrawl) add(attempt.stateId, attempt.action.target?.nodePath);
+    }
+  }
+  for (const transition of previousTransitions) {
+    if (transition.sideEffects) add(transition.from, transition.action.target?.nodePath);
+  }
+  return keys;
+}
 
 /** `explore_interactions`. */
 export async function exploreInteractions(
@@ -24,7 +56,6 @@ export async function exploreInteractions(
   input: ToolInput<typeof exploreContract>,
 ): Promise<Result<Envelope<ToolOutput<typeof exploreContract>>>> {
   const ctx = withOutRoot(baseCtx, input.outRoot);
-  if (input.policy !== undefined && input.policy !== 'safe') return err(uidnaError('validation', 'only the "safe" policy exists in Phase 1'));
   const loadedScan = await ctx.store.loadScan(input.scanId);
   if (!loadedScan.ok) return loadedScan;
   const scan = loadedScan.value;
@@ -38,19 +69,13 @@ export async function exploreInteractions(
   const previousDna = (await ctx.store.hasDna(input.scanId)) ? await ctx.store.loadDna(input.scanId) : null;
   if (previousDna !== null && !previousDna.ok) return previousDna;
   const previousTransitions = previousDna ? previousDna.value.states.transitions : [];
-  const knownSideEffectPaths = new Set<string>();
-  for (const attempt of previousRecord.value?.attempted ?? []) {
-    if ((attempt.outcome === 'side-effect' || attempt.outcome === 'navigated') && attempt.action.target) knownSideEffectPaths.add(attempt.action.target.nodePath);
-  }
-  for (const transition of previousTransitions) {
-    if (transition.sideEffects && transition.action.target) knownSideEffectPaths.add(transition.action.target.nodePath);
-  }
+  const knownSideEffectPaths = knownSideEffects(scan, previousRecord.value, previousTransitions);
 
   const limits = resolveLimits(ctx, { ...scan.budget.limits, ...(input.budget ?? {}) });
   const budget = new BudgetTracker(limits, ctx.clock, ctx.signal);
   const evidence = await ctx.ledger.record({
     kind: 'explore',
-    inputs: { scanId: input.scanId, policy: 'safe', budget: limits, viewports: input.viewports, denyNames: input.denyNames },
+    inputs: { scanId: input.scanId, policy: input.policy ?? 'safe', budget: limits, viewports: input.viewports, pages: input.pages, denyNames: input.denyNames, formValues: input.formValues === undefined ? undefined : Object.keys(input.formValues) },
     scanId: input.scanId,
   });
   const denyNames = [...(ctx.config.denyNames ?? []), ...(input.denyNames ?? [])];
@@ -63,6 +88,9 @@ export async function exploreInteractions(
     evidenceId: evidence.id,
     ...(denyNames.length > 0 ? { denyNames } : {}),
     ...(input.viewports === undefined ? {} : { viewportWidths: input.viewports }),
+    ...(input.pages === undefined ? {} : { pageIds: input.pages }),
+    ...(input.formValues === undefined ? {} : { formValues: input.formValues }),
+    policy: input.policy ?? 'safe',
     previousTransitions,
     knownSideEffectPaths,
   });
@@ -103,7 +131,7 @@ export async function exploreInteractions(
 
   const result: ToolOutput<typeof exploreContract> = {
     scanId: input.scanId,
-    policy: 'safe',
+    policy: outcome.record.policy,
     coverage: outcome.record.coverage,
     coverageByPage: outcome.record.coverageByPage ?? {},
     newStates: stateSummaries(dna.value).filter((s) => newStates.has(s.stateId)),
