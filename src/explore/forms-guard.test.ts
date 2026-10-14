@@ -5,6 +5,11 @@
  *   debounced autosave a fill starts after the fill returned, and the
  *   beacon the page sends when it is unloaded by the revert's fresh load,
  *   never reach the server. The autosave makes the fill a side effect.
+ * - A step that reached the page but failed (setChecked clicked a box whose
+ *   handler cancels the toggle) still ends its chain with a fresh load under
+ *   the guard, even when it is the only step that reached the browser: the
+ *   timer its handler started and the unload beacon never reach the server,
+ *   and the request the timer sent makes the failed fill a side effect.
  * - A step acts on its control as found in the state the earlier steps
  *   produced: when the empty submit inserts an error summary before the
  *   controls, the fill and the filled submit still hit their own controls,
@@ -24,7 +29,7 @@ import type { CapturedState } from '../browser/types.js';
 import { BudgetTracker, resolveBudget } from '../domain/budget.js';
 import { unwrap } from '../domain/result.js';
 import { exploreInteractions, type ExploreOutcome } from './explorer.js';
-import { resolveMoved, TARGET_MOVED } from './forms.js';
+import { resolveMoved, SUBMIT_SKIPPED_EARLIER, TARGET_MOVED } from './forms.js';
 import { effectKey } from './run.js';
 
 const AUTOSAVE_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Profile</title>
@@ -90,6 +95,38 @@ form.addEventListener('submit', (e) => {
 });
 </script></body></html>`;
 
+// The page decides when the box is checked (once the server recorded the consent): the click handler cancels the
+// toggle, so Playwright's setChecked clicks, finds the box unchanged and throws. The handler has run by then: a
+// debounced PUT is pending, and the document sends a beacon when it is unloaded.
+const CONSENT_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Terms</title>
+<style>body{font-family:sans-serif;margin:24px}label,button,p{display:block;margin:8px 0}</style></head>
+<body>
+<h1>Terms</h1>
+<form id="terms" aria-label="Terms" novalidate>
+  <label><input id="agree" name="agree" type="checkbox" required> I agree to the terms</label>
+  <button type="submit" id="continue">Continue</button>
+</form>
+<p id="status">idle</p>
+<script>
+let pending = false;
+const agree = document.getElementById('agree');
+const status = document.getElementById('status');
+agree.addEventListener('click', (e) => {
+  e.preventDefault();
+  pending = true;
+  setTimeout(() => {
+    fetch('/api/consent', { method: 'PUT', body: 'yes' })
+      .then(() => { status.textContent = 'consent recorded'; })
+      .catch(() => { status.textContent = 'consent not recorded'; });
+  }, 500);
+});
+document.getElementById('terms').addEventListener('submit', (e) => {
+  e.preventDefault();
+  fetch('/api/terms', { method: 'POST', body: String(agree.checked) }).catch(() => undefined);
+});
+addEventListener('pagehide', () => { if (pending) navigator.sendBeacon('/api/consent-draft', 'yes'); });
+</script></body></html>`;
+
 let server: Server;
 let origin = '';
 const nonGetReceived: string[] = [];
@@ -105,7 +142,8 @@ beforeAll(async () => {
       return;
     }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(req.url?.startsWith('/moved') === true ? MOVED_PAGE : AUTOSAVE_PAGE);
+    const path = req.url ?? '';
+    res.end(path.startsWith('/moved') ? MOVED_PAGE : path.startsWith('/consent') ? CONSENT_PAGE : AUTOSAVE_PAGE);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -119,18 +157,17 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-/** Scan `path` at 1280 and explore it with the forms policy. */
-async function scanAndExplore(path: string): Promise<{ scan: ScanRecord; base: CapturedState; outcome: ExploreOutcome }> {
+/** Scan `path` at 1280 and explore it with the forms policy; `known` names the node paths an earlier run found side-effecting. */
+async function scanAndExplore(path: string, known?: (base: CapturedState) => ReadonlySet<string>): Promise<{ scan: ScanRecord; base: CapturedState; outcome: ExploreOutcome }> {
   const scanned = unwrap(await scanInterface(ctx, { url: `${origin}${path}`, viewports: [1280] }), 'scan');
   const scan = unwrap(await ctx.store.loadScan(scanned.result.scanId), 'load scan');
   const captures = unwrap(await ctx.store.loadAllCaptures(scan.scanId, scan), 'load captures');
   const base = captures.get(scan.states[0]?.stateId ?? '');
   if (!base) throw new Error('no base capture');
   const evidence = await ctx.ledger.record({ kind: 'explore', inputs: { scanId: scan.scanId, policy: 'forms' }, scanId: scan.scanId });
-  const outcome = unwrap(
-    await exploreInteractions({ ctx, scan, captures, budget: new BudgetTracker(resolveBudget({ actions: 120 }), ctx.clock), evidenceId: evidence.id, policy: 'forms' }),
-    'explore forms',
-  );
+  const budget = new BudgetTracker(resolveBudget({ actions: 120 }), ctx.clock);
+  const input = { ctx, scan, captures, budget, evidenceId: evidence.id, policy: 'forms' } as const;
+  const outcome = unwrap(await exploreInteractions(known === undefined ? input : { ...input, knownSideEffectPaths: known(base) }), 'explore forms');
   return { scan, base, outcome };
 }
 
@@ -220,6 +257,44 @@ describe('forms policy: a chain step acts on its control where an earlier step m
     expect(outcome.record.sideEffectKeys).toEqual(expect.arrayContaining([effectKey(scan.pageId, movedSave.path), effectKey(scan.pageId, byAttrId(base, 'save').path)]));
     expect(outcome.record.sideEffectKeys).not.toContain(effectKey(scan.pageId, byAttrId(base, 'delete').path));
     for (const t of outcome.transitions.filter((x) => x.action.type === 'fill' || x.action.type === 'submit')) expect(t.revert, t.id).toEqual({ method: 'reload', succeeded: true });
+    expect(outcome.record.partial).toBe(false);
+  });
+});
+
+describe('forms policy: a step that reached the page but was not performed', () => {
+  let scan: ScanRecord;
+  let base: CapturedState;
+  let outcome: ExploreOutcome;
+
+  beforeAll(async () => {
+    // The submit button is already known to cause a side effect (as at a second viewport): both submits are skipped,
+    // so the failing checkbox fill is the only step of the chain that reaches the browser.
+    ({ scan, base, outcome } = await scanAndExplore('/consent/', (capture) => new Set([byAttrId(capture, 'continue').path])));
+  }, 240_000);
+
+  it('keeps the guard until the dirty document is unloaded by a fresh load, and records the failed fill as a side effect', () => {
+    expect(nonGetReceived).toEqual([]);
+    const agreePath = byAttrId(base, 'agree').path;
+    const continuePath = byAttrId(base, 'continue').path;
+    expect(outcome.record.attempted.filter((a) => a.action.type === 'submit')).toEqual([]);
+    expect(outcome.record.skipped.filter((s) => s.nodePath === continuePath && s.reason.startsWith('submit:')).map((s) => s.reason)).toEqual([
+      `submit: ${SUBMIT_SKIPPED_EARLIER}`,
+      `submit: ${SUBMIT_SKIPPED_EARLIER}`,
+    ]);
+
+    // setChecked clicked the box before it found the state unchanged: the debounced PUT the click started counts for the fill.
+    const fills = outcome.record.attempted.filter((a) => a.action.type === 'fill');
+    expect(fills).toHaveLength(1);
+    const fill = fills[0];
+    expect(fill?.action.target?.nodePath).toBe(agreePath);
+    expect(fill?.transitionId).toBeNull();
+    expect(fill?.outcome).toBe('side-effect');
+    expect(fill?.reason).toContain('1 non-GET request(s) followed the action');
+    expect(outcome.record.sideEffectKeys).toContain(effectKey(scan.pageId, agreePath));
+    expect(outcome.record.unknowns.some((u) => u.includes('followed the action') && u.includes('/api/consent)') && u.includes('blocked') && u.includes('attributed to this step'))).toBe(true);
+    // The chain ended with a fresh load under the guard: the beacon of the unloaded document was blocked too.
+    expect(outcome.record.unknowns.some((u) => u.includes('/api/consent-draft') && u.includes('reverted') && u.includes('blocked'))).toBe(true);
+    expect(outcome.record.limitations.filter((l) => /could not restore|could not verify|cleanup_incomplete|ended early|guard/.test(l))).toEqual([]);
     expect(outcome.record.partial).toBe(false);
   });
 });

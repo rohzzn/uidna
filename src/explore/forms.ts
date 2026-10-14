@@ -12,8 +12,10 @@
  * document sends reaches a server. A step is observed once the page has been
  * quiet for a second (`CHAIN_STABILITY`), so a debounced handler's request
  * counts for the step that started it; one that appears later still, before
- * the next step, belongs to that step too. Values are never read from the
- * page: the policy chose them.
+ * the next step, belongs to that step too. A step that reached the browser
+ * but failed or was not performed is treated the same way (its handlers may
+ * have run), and makes the chain end with that fresh load. Values are never
+ * read from the page: the policy chose them.
  */
 import { join } from 'node:path';
 import type { Transition, UiNode } from '@rohzzn/uidna-schema';
@@ -75,7 +77,11 @@ interface StepTail {
 interface StepResult {
   readonly cursor: Cursor;
   readonly transition: Transition | null;
-  /** True when the browser acted on the document (typed, checked, selected or submitted), even when nothing observable changed: the chain's revert must load the base URL afresh. */
+  /**
+   * True when the step reached the browser (typed, checked, selected or submitted, or reached `act()` and failed
+   * there, or was not performed after its handlers may have run), even when nothing observable changed: the chain's
+   * revert must load the base URL afresh while the guard is held.
+   */
   readonly touched: boolean;
   /** True when the chain cannot continue (the page left the document, a probe failed, the browser is gone). */
   readonly ended: boolean;
@@ -172,6 +178,21 @@ async function performChainStep(run: Run, ref: Reference, cursor: Cursor, planne
     for (const node of nodes) markSideEffect(run, ref, node);
   };
   const tailOf = (observedUntil: string, attempt: AttemptedInteraction | null, transition: Transition | null): StepTail => ({ planned, nodes, observedUntil, attempt, transition });
+  // A step that reached `act()` and failed, or was not performed, may still have reached the page: setChecked clicks
+  // the box before it finds the state unchanged, a fill whose input handler opened a popup is reported as not
+  // performed. Its handlers ran and may have started timers, and no snapshot covers control values or timers: the
+  // chain ends with a fresh load under the guard (`touched`), whose unload ends those timers. The page first gets the
+  // quiet second every step gets, so that a request a debounced handler sends counts for this step, not the next one.
+  const failed = async (attempt: AttemptedInteraction): Promise<StepResult> => {
+    const stable = await session.waitForStability(CHAIN_STABILITY);
+    if (!stable.ok) run.limitations.push(`${planned.describe}: stability wait failed (${describeError(stable.error)})`);
+    const tail = tailOf(marker, attempt, null);
+    const blocked: UiNode[] = [];
+    // Nothing is awaited between the two reads: what appears from here on is attributed to the step by the chain.
+    attributeLate(run, ref, tail, session.networkSince(marker), blocked, 'followed the action');
+    tail.observedUntil = session.markNetwork();
+    return { ...keep, touched: true, blockedOnly: blocked.length > 0, tail };
+  };
 
   const acted = await session.act(toUiAction(planned));
   budget.consumeAction();
@@ -181,7 +202,7 @@ async function performChainStep(run: Run, ref: Reference, cursor: Cursor, planne
       run.aborted = `browser session unavailable (${describeError(acted.error)})`;
       return { ...keep, ended: true };
     }
-    return { ...keep, tail: tailOf(marker, attempt, null) };
+    return failed(attempt);
   }
   const outcome = acted.value;
   if (outcome.dialogs.length > 0) {
@@ -190,9 +211,9 @@ async function performChainStep(run: Run, ref: Reference, cursor: Cursor, planne
   const blockedRequests = outcome.blockedRequests ?? [];
   const sentEarly = isSideEffect(session.networkSince(marker)).nonGet > 0;
   if (!outcome.performed && blockedRequests.length === 0 && !sentEarly) {
-    const observedUntil = session.markNetwork();
     const navigation = unperformedNavigation(outcome);
     if (navigation !== null) {
+      const observedUntil = session.markNetwork();
       // A GET submission or a script navigation (blocked, or committed and undone): the page is back; recorded once, never repeated.
       remember();
       const attempt = recordAttempt(run, stateId, planned, 'navigated', null, navigation, started);
@@ -200,8 +221,7 @@ async function performChainStep(run: Run, ref: Reference, cursor: Cursor, planne
       // The submit event ran (or the document was replaced and restored): the chain ends on a document loaded afresh.
       return { ...keep, touched: true, tail: tailOf(observedUntil, attempt, null) };
     }
-    const attempt = recordAttempt(run, stateId, planned, 'failed', null, outcome.reason ?? 'action not performed', started);
-    return { ...keep, tail: tailOf(observedUntil, attempt, null) };
+    return failed(recordAttempt(run, stateId, planned, 'failed', null, outcome.reason ?? 'action not performed', started));
   }
   const stable = await session.waitForStability(CHAIN_STABILITY);
   if (!stable.ok) run.limitations.push(`${planned.describe}: stability wait failed (${describeError(stable.error)})`);
@@ -396,15 +416,17 @@ function noteRevertRequests(run: Run, sequence: FormSequence, entries: readonly 
 
 /**
  * Bring the page back after a chain and record the revert on every
- * transition of the chain. A chain that reached the document is always
- * reverted with a fresh load of the base URL, even when every step was
- * `unchanged`: the values a fill typed live in control properties that no
- * digest covers, so a snapshot cannot tell them apart from the base.
+ * transition of the chain. A chain any step of which reached the browser is
+ * always reverted with a fresh load of the base URL, even when every step
+ * was `unchanged` or failed: the values a fill typed live in control
+ * properties, and the timers its handlers started in the page, which no
+ * digest covers, so a snapshot cannot tell them apart from the base. The
+ * fresh load unloads that document while the guard is still held.
  */
 async function revertSequence(run: Run, ref: Reference, chain: Transition[], touched: boolean, planned: Planned): Promise<void> {
   if (run.aborted !== null) return;
   if (chain.length === 0 && !touched) {
-    // No step reached the page: verify, and reload only when needed.
+    // Every step was skipped, none reached the browser: verify, and reload only when needed.
     await quietly(run, { kind: 'blur' });
     await ensureBase(run, ref, planned, null);
     return;
