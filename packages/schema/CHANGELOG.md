@@ -5,7 +5,7 @@ All notable changes to `@rohzzn/uidna-schema` are documented here. The format fo
 follows semantic versioning. `dnaVersion` inside a document tracks this
 package's version.
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-10-14
 
 ### Added (all optional; 0.2.0 documents stay valid)
 

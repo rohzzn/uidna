@@ -5,7 +5,7 @@ All notable changes to `@rohzzn/uidna` are documented here. The format follows
 semantic versioning. The document schema has its own changelog in
 [`packages/schema/CHANGELOG.md`](packages/schema/CHANGELOG.md).
 
-## [Unreleased]
+## [0.3.0] - 2026-10-14
 
 Completes Phase 2 with responsive-rule inference and search, filter and sort inference,
 each proven end to end on the new Fixture B (an orders dashboard) in real Chromium.
