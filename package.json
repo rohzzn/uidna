@@ -40,6 +40,8 @@
     "test:e2e": "vitest run --project e2e",
     "docs:catalog": "tsx scripts/gen-catalog.ts",
     "docs:check": "tsx scripts/gen-catalog.ts --check",
+    "docs:site": "tsx scripts/site-docs.ts",
+    "docs:site:check": "tsx scripts/site-docs.ts --check",
     "fixture:serve": "node fixtures/serve.mjs fixtures/a-marketing",
     "uidna": "tsx src/cli.ts"
   },

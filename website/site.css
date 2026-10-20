@@ -170,7 +170,7 @@ kbd { display: inline-grid; place-items: center; min-width: calc(20 * var(--s));
 .btn-o { background: transparent; color: var(--ink); }
 .btn-o:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 .install { display: inline-flex; align-items: center; gap: calc(10 * var(--s)); max-width: 100%; height: calc(42 * var(--s)); padding: 0 calc(4 * var(--s)) 0 calc(14 * var(--s)); border: 1px solid var(--ink); background: var(--card); font: 500 calc(12.5 * var(--s))/1 var(--mono); font-stretch: 87.5%; color: var(--ink); }
-.install > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.install > span { min-width: 0; padding-block: calc(4 * var(--s)); overflow: hidden; line-height: 1.5; white-space: nowrap; text-overflow: ellipsis; }
 .install b { font-weight: 600; color: var(--blue); }
 .copy { display: inline-grid; place-items: center; flex: none; width: calc(32 * var(--s)); height: calc(32 * var(--s)); padding: 0; border: 1px solid var(--rule-2); background: var(--paper); color: var(--muted); cursor: pointer; }
 .copy:hover { border-color: var(--ink); color: var(--ink); }
