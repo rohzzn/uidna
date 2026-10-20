@@ -1,5 +1,5 @@
 {
-  "name": "@rohzzn/uidna",
+  "name": "uidna-mcp",
   "version": "0.3.0",
   "description": "Reverse-engineer any user interface into a UI DNA document, rebuild it as code you own, and prove it with a DiffReport. MCP server and CLI for coding agents.",
   "license": "MIT",
@@ -8,7 +8,8 @@
     "node": ">=20.19"
   },
   "bin": {
-    "uidna": "./dist/cli.js"
+    "uidna": "./dist/cli.js",
+    "uidna-mcp": "./dist/cli.js"
   },
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",

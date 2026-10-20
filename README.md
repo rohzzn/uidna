@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@rohzzn/uidna"><img alt="npm version" src="https://img.shields.io/npm/v/%40rohzzn%2Fuidna?label=%40rohzzn%2Fuidna&color=2f5bea"></a>
+  <a href="https://www.npmjs.com/package/uidna-mcp"><img alt="npm version" src="https://img.shields.io/npm/v/uidna-mcp?label=uidna-mcp&color=2f5bea"></a>
   <a href="https://www.npmjs.com/package/@rohzzn/uidna-schema"><img alt="schema version" src="https://img.shields.io/npm/v/%40rohzzn%2Fuidna-schema?label=%40rohzzn%2Fuidna-schema&color=2f5bea"></a>
   <a href="https://github.com/rohzzn/uidna/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rohzzn/uidna/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1f9d6a"></a>
@@ -47,7 +47,7 @@ agent reconstructs, verifies, repairs, reports
 ## Quick start
 
 ```bash
-npm install -g @rohzzn/uidna
+npm install -g uidna-mcp
 npx playwright install chromium
 uidna setup      # registers the MCP server in Claude Code, Codex and Cursor; asks first, backs up
 uidna doctor     # browser availability, CDP reachability, registration state
@@ -57,14 +57,14 @@ uidna doctor     # browser availability, CDP reachability, registration state
 `~/.cursor/mcp.json`, asks for confirmation and backs up every file it touches. Use
 `--scope project` to write `.mcp.json` and `.cursor/mcp.json` in the current directory
 instead, and `--yes` to skip the prompt. The registered command is
-`npx -y @rohzzn/uidna@latest serve` (wrapped in `cmd /c` on Windows).
+`npx -y uidna-mcp@latest serve` (wrapped in `cmd /c` on Windows).
 
 Manual MCP configuration, if you prefer:
 
 ```json
 {
   "mcpServers": {
-    "uidna": { "type": "stdio", "command": "npx", "args": ["-y", "@rohzzn/uidna@latest", "serve"] }
+    "uidna": { "type": "stdio", "command": "npx", "args": ["-y", "uidna-mcp@latest", "serve"] }
   }
 }
 ```

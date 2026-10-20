@@ -52,8 +52,8 @@ function byTarget(changes: SetupChange[], target: SetupChange['target']): SetupC
   return found;
 }
 
-const EXPECTED_ENTRY = { type: 'stdio', command: 'npx', args: ['-y', '@rohzzn/uidna@latest', 'serve'] };
-const EXPECTED_TOML = '[mcp_servers.uidna]\ncommand = "npx"\nargs = ["-y", "@rohzzn/uidna@latest", "serve"]\n';
+const EXPECTED_ENTRY = { type: 'stdio', command: 'npx', args: ['-y', 'uidna-mcp@latest', 'serve'] };
+const EXPECTED_TOML = '[mcp_servers.uidna]\ncommand = "npx"\nargs = ["-y", "uidna-mcp@latest", "serve"]\n';
 
 describe('planSetup', () => {
   it('creates all three user-scope files when none exist', async () => {
@@ -151,7 +151,7 @@ describe('planSetup', () => {
 
   it('treats a differently formatted but equal entry as noop without reformatting the file', async () => {
     const file = join(home, '.cursor', 'mcp.json');
-    const minified = '{"mcpServers":{"uidna":{"type":"stdio","command":"npx","args":["-y","@rohzzn/uidna@latest","serve"]},"other":{"command":"x","args":[]}}}';
+    const minified = '{"mcpServers":{"uidna":{"type":"stdio","command":"npx","args":["-y","uidna-mcp@latest","serve"]},"other":{"command":"x","args":[]}}}';
     await write(file, minified);
     const changes = unwrap(await planSetup({ targets: ['cursor'], scope: 'user', server: DEFAULT_SERVER_COMMAND, home, cwd }));
     expect(changes[0]!.noop).toBe(true);
@@ -238,9 +238,9 @@ describe('planSetup', () => {
     const text = formatPlan(changes);
     expect(text).toContain(`[create] ${join(cwd, '.mcp.json')}`);
     expect(text).toContain(`[create] ${join(home, '.codex', 'config.toml')}`);
-    expect(text).toContain('Claude Code, project scope: npx -y @rohzzn/uidna@latest serve');
+    expect(text).toContain('Claude Code, project scope: npx -y uidna-mcp@latest serve');
     expect(text).toContain('note: Codex loads a project-scoped');
-    expect(text).toContain('+ "uidna": {"type":"stdio","command":"npx","args":["-y","@rohzzn/uidna@latest","serve"]}');
+    expect(text).toContain('+ "uidna": {"type":"stdio","command":"npx","args":["-y","uidna-mcp@latest","serve"]}');
     expect(text).toContain('+ [mcp_servers.uidna]');
     expect(text).toContain('2 file(s) to write (2 new, 0 updated)');
 
@@ -248,7 +248,7 @@ describe('planSetup', () => {
     const updateText = formatPlan(update);
     expect(updateText).toContain(`[update] ${join(home, '.claude.json')}`);
     expect(updateText).toContain('- "uidna": {"type":"stdio","command":"node","args":["old.js"]}');
-    expect(updateText).toContain('+ "uidna": {"type":"stdio","command":"npx","args":["-y","@rohzzn/uidna@latest","serve"]}');
+    expect(updateText).toContain('+ "uidna": {"type":"stdio","command":"npx","args":["-y","uidna-mcp@latest","serve"]}');
     expect(formatPlan([])).toContain('Nothing to do');
   });
 });
@@ -340,7 +340,7 @@ describe('registrationStatus', () => {
     const rows = unwrap(await registrationStatus({ home, cwd }));
     const find = (target: string, scope: string) => rows.find((r) => r.target === target && r.scope === scope)!;
     expect(rows).toHaveLength(5);
-    expect(find('claude-code', 'user')).toMatchObject({ exists: true, registered: true, command: 'npx -y @rohzzn/uidna@latest serve' });
+    expect(find('claude-code', 'user')).toMatchObject({ exists: true, registered: true, command: 'npx -y uidna-mcp@latest serve' });
     expect(find('claude-code', 'project')).toMatchObject({ exists: true, registered: false, command: null });
     expect(find('codex', 'user')).toMatchObject({ exists: true, registered: true, command: 'node C:\\u\\cli.js serve' });
     expect(find('cursor', 'user')).toMatchObject({ exists: false, registered: false, command: null });
@@ -351,11 +351,11 @@ describe('registrationStatus', () => {
 
   it('honors a custom server name and codexHome', async () => {
     const codexHome = join(tmp, 'codex-home');
-    await write(join(codexHome, 'config.toml'), '[mcp_servers.custom]\ncommand = "npx"\nargs = ["-y", "@rohzzn/uidna@latest", "serve"]\n');
+    await write(join(codexHome, 'config.toml'), '[mcp_servers.custom]\ncommand = "npx"\nargs = ["-y", "uidna-mcp@latest", "serve"]\n');
     const rows = unwrap(await registrationStatus({ home, cwd, codexHome, serverName: 'custom' }));
     const codex = rows.find((r) => r.target === 'codex')!;
     expect(codex.file).toBe(join(codexHome, 'config.toml'));
     expect(codex.registered).toBe(true);
-    expect(codex.command).toBe('npx -y @rohzzn/uidna@latest serve');
+    expect(codex.command).toBe('npx -y uidna-mcp@latest serve');
   });
 });

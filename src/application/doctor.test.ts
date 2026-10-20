@@ -30,7 +30,7 @@ async function write(file: string, content: string): Promise<void> {
   await writeFile(file, content, 'utf8');
 }
 
-const REGISTERED = JSON.stringify({ mcpServers: { uidna: { type: 'stdio', command: 'npx', args: ['-y', '@rohzzn/uidna@latest', 'serve'] } } });
+const REGISTERED = JSON.stringify({ mcpServers: { uidna: { type: 'stdio', command: 'npx', args: ['-y', 'uidna-mcp@latest', 'serve'] } } });
 
 function fakeProbe(overrides: Partial<BrowserAvailability> = {}): (cdpEndpoint?: string) => Promise<BrowserAvailability> {
   return (cdpEndpoint) =>
@@ -79,7 +79,7 @@ describe('runDoctor', () => {
     expect(report.outRoot).toEqual({ path: outRoot, writable: true });
 
     const claude = report.registrations.find((r) => r.target === 'claude-code' && r.scope === 'user')!;
-    expect(claude).toMatchObject({ exists: true, registered: true, command: 'npx -y @rohzzn/uidna@latest serve' });
+    expect(claude).toMatchObject({ exists: true, registered: true, command: 'npx -y uidna-mcp@latest serve' });
     expect(report.registrations).toHaveLength(5);
 
     expect(report.problems).toHaveLength(1);
@@ -89,7 +89,7 @@ describe('runDoctor', () => {
 
     const text = formatDoctor(report);
     expect(text).toContain('Claude Code (user)');
-    expect(text).toContain('registered  npx -y @rohzzn/uidna@latest serve');
+    expect(text).toContain('registered  npx -y uidna-mcp@latest serve');
     expect(text).toContain('  ! Chromium is not installed');
     expect(text).toContain('scans        2');
     expect(text).toContain('Exit code 1');
@@ -128,7 +128,7 @@ describe('runDoctor', () => {
     expect(report.node.ok).toBe(false);
     expect(report.problems.some((p) => p.startsWith('Node v18.20.0 is too old'))).toBe(true);
     expect(report.problems.some((p) => p.startsWith('Chrome is not reachable at http://localhost:9222') && p.includes('ECONNREFUSED'))).toBe(true);
-    expect(report.problems.some((p) => p === 'uidna is not registered with any agent: run npx @rohzzn/uidna setup')).toBe(true);
+    expect(report.problems.some((p) => p === 'uidna is not registered with any agent: run npx uidna-mcp setup')).toBe(true);
     expect(report.problems.some((p) => p.includes(join(home, '.cursor', 'mcp.json')) && p.includes('could not be read'))).toBe(true);
     expect(formatDoctor(report)).toContain('4 problem(s) found. Exit code 1.');
   });

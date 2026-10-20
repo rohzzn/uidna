@@ -115,7 +115,7 @@ function collectProblems(report: DoctorReport, deps: DoctorDeps): string[] {
     );
   }
   if (report.playwright.version === null) {
-    problems.push('Playwright could not be loaded: reinstall uidna (npm install -g @rohzzn/uidna) or run npm install in its directory');
+    problems.push('Playwright could not be loaded: reinstall uidna (npm install -g uidna-mcp) or run npm install in its directory');
   }
   if (!report.chromium.available) {
     problems.push(`Chromium is not installed: run npx playwright install chromium (${report.chromium.detail})`);
@@ -136,7 +136,7 @@ function collectProblems(report: DoctorReport, deps: DoctorDeps): string[] {
     }
   }
   if (!report.registrations.some((row) => row.registered)) {
-    problems.push('uidna is not registered with any agent: run npx @rohzzn/uidna setup');
+    problems.push('uidna is not registered with any agent: run npx uidna-mcp setup');
   }
   if (!report.outRoot.writable) {
     problems.push(`Scan directory ${report.outRoot.path} is not writable: pass another directory with --out <dir> or fix its permissions`);

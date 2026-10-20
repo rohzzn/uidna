@@ -10,14 +10,14 @@
  * - Claude Code. User scope is the top-level `mcpServers` object of
  *   `~/.claude.json`; project scope is `<project>/.mcp.json` with the same
  *   `mcpServers` object (shared through version control, approved on first
- *   use). A stdio entry is `{"type":"stdio","command":"npx","args":["-y","@rohzzn/uidna@latest","serve"]}`
+ *   use). A stdio entry is `{"type":"stdio","command":"npx","args":["-y","uidna-mcp@latest","serve"]}`
  *   and may carry `env`. CLI equivalent:
- *   `claude mcp add --scope user --transport stdio uidna -- npx -y @rohzzn/uidna@latest serve`
+ *   `claude mcp add --scope user --transport stdio uidna -- npx -y uidna-mcp@latest serve`
  *   (`--scope project` writes `.mcp.json`). https://code.claude.com/docs/en/mcp
  *
  * - OpenAI Codex CLI. `~/.codex/config.toml` holds one `[mcp_servers.<name>]`
  *   table per server with `command`, `args` and optional `env`/`cwd`/`env_vars`.
- *   CLI equivalent: `codex mcp add uidna -- npx -y @rohzzn/uidna@latest serve`. Codex only
+ *   CLI equivalent: `codex mcp add uidna -- npx -y uidna-mcp@latest serve`. Codex only
  *   loads a project-scoped `.codex/config.toml` for projects the user has
  *   marked trusted, so uidna always registers Codex at user scope and says so
  *   on the change. https://developers.openai.com/codex/mcp and
@@ -34,7 +34,7 @@
  * Native Windows note: `npx` is a `.cmd` shim there and several client bug
  * trackers report that stdio entries need `cmd /c npx ...` to spawn (not
  * confirmed on the vendor pages above, so this module does not add the
- * wrapper). The integrator can pass `{ command: 'cmd', args: ['/c', 'npx', '-y', '@rohzzn/uidna@latest', 'serve'] }`
+ * wrapper). The integrator can pass `{ command: 'cmd', args: ['/c', 'npx', '-y', 'uidna-mcp@latest', 'serve'] }`
  * or the `localServerCommand` form, which runs `node` directly and needs no shim.
  */
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -74,7 +74,7 @@ export interface ServerCommand {
  * the checkout itself (same package name, no linked bin) and fails, and elsewhere it may keep
  * serving a cached older release.
  */
-export const DEFAULT_SERVER_COMMAND: ServerCommand = { command: 'npx', args: ['-y', '@rohzzn/uidna@latest', 'serve'] };
+export const DEFAULT_SERVER_COMMAND: ServerCommand = { command: 'npx', args: ['-y', 'uidna-mcp@latest', 'serve'] };
 
 /**
  * Registration that runs a local checkout or install directly with `node`.
@@ -85,7 +85,7 @@ export function localServerCommand(cliPath: string): ServerCommand {
   return { command: 'node', args: [resolve(cliPath), 'serve'] };
 }
 
-/** One-line rendering of a server command, e.g. `npx -y @rohzzn/uidna@latest serve`. */
+/** One-line rendering of a server command, e.g. `npx -y uidna-mcp@latest serve`. */
 export function formatCommand(server: ServerCommand): string {
   return [server.command, ...server.args].join(' ');
 }

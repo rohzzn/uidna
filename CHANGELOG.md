@@ -1,11 +1,11 @@
 # Changelog
 
-All notable changes to `@rohzzn/uidna` are documented here. The format follows
+All notable changes to `uidna-mcp` (published as `@rohzzn/uidna` up to 0.2.0) are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the package follows
 semantic versioning. The document schema has its own changelog in
 [`packages/schema/CHANGELOG.md`](packages/schema/CHANGELOG.md).
 
-## [0.3.0] - 2026-10-14
+## [0.3.0] - 2026-10-20
 
 Completes Phase 2 with responsive-rule inference and search, filter and sort inference,
 each proven end to end on the new Fixture B (an orders dashboard) in real Chromium.
@@ -33,6 +33,12 @@ each proven end to end on the new Fixture B (an orders dashboard) in real Chromi
 
 ### Changed
 
+- The CLI and MCP server are published as `uidna-mcp`: `npm install -g uidna-mcp`, or
+  `npx uidna-mcp`. npm does not accept the name `uidna` (too close to an existing package),
+  so the scoped `@rohzzn/uidna` is deprecated and points here. The command is still
+  `uidna`; the package also installs it as `uidna-mcp`. The schema stays
+  `@rohzzn/uidna-schema`.
+
 - Exploration blocks every non-GET request for the whole run: an action that sends one is
   a side effect that never reaches its server. A control repeated in every item of a
   collection is one action: after a side effect it is skipped in every item.
@@ -57,7 +63,7 @@ each proven end to end on the new Fixture B (an orders dashboard) in real Chromi
 - `act()` waits for the popup of a click whose request the guard already saw, so a slow
   popup report under load no longer makes the click count as performed.
 
-- `uidna setup` registers `npx -y @rohzzn/uidna@latest serve`. With the bare package name,
+- `uidna setup` registers `npx -y uidna-mcp@latest serve`. With the bare package name,
   npx run inside a checkout of this repository resolved to the checkout and the server
   failed to start; the tag also keeps agents on the newest release.
 - `uidna doctor` reports an unreachable Chrome on the default debugging port as optional
@@ -95,6 +101,12 @@ fixture in real Chromium.
   (a three-page site), each with an end-to-end acceptance test.
 
 ### Changed
+
+- The CLI and MCP server are published as `uidna-mcp`: `npm install -g uidna-mcp`, or
+  `npx uidna-mcp`. npm does not accept the name `uidna` (too close to an existing package),
+  so the scoped `@rohzzn/uidna` is deprecated and points here. The command is still
+  `uidna`; the package also installs it as `uidna-mcp`. The schema stays
+  `@rohzzn/uidna-schema`.
 
 - Transitions that caused a side effect are never replayed, by the verifier or by the
   generated Playwright suite, which skips them with the reason.
