@@ -4,7 +4,7 @@
  * navigation between two crawled pages is not a side effect.
  */
 import { describe, expect, it } from 'vitest';
-import type { Action } from '@rohzzn/uidna-schema';
+import type { Action } from 'uidna-schema';
 import { keyPressEffectKey } from '../explore/index.js';
 import { knownSideEffects } from './explore-workflow.js';
 import type { AttemptedInteraction } from './records.js';

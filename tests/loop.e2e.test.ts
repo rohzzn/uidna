@@ -10,7 +10,7 @@
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseUiDna } from '@rohzzn/uidna-schema';
+import { parseUiDna } from 'uidna-schema';
 import type { DiffReport, Finding } from '../src/contracts/diff-report.js';
 import type { StaticServer } from '../src/application/static-server.js';
 import { runCli, serveFixtureA, tempDir } from './helpers.js';

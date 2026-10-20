@@ -9,7 +9,7 @@
  * two-column hero) and 390 (phone: hamburger visible, menu hidden unless open,
  * one-column cards and hero).
  */
-import type { A11yProps, Box, RoleTreeNode, UiNode, Viewport } from '@rohzzn/uidna-schema';
+import type { A11yProps, Box, RoleTreeNode, UiNode, Viewport } from 'uidna-schema';
 import type { ScanRecord, StateRecord } from '../application/records.js';
 import { STYLE_DEFAULTS } from '../browser/style-properties.js';
 import type { CapturedAsset, CapturedFont, CapturedState, NetworkEntry } from '../browser/types.js';

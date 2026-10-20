@@ -4,7 +4,7 @@
  * the measured box. Screenshots are never used as UI.
  */
 import { basename, resolve, sep } from 'node:path';
-import type { Asset, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
+import type { Asset, UiDnaDocument, UiNode } from 'uidna-schema';
 import { compareStrings } from './jsx.js';
 import type { GenerationModel } from './model.js';
 

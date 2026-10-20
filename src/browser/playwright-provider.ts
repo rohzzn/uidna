@@ -17,7 +17,7 @@ import { createRequire } from 'node:module';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { chromium } from 'playwright';
 import { z } from 'zod';
-import type { Viewport } from '@rohzzn/uidna-schema';
+import type { Viewport } from 'uidna-schema';
 import type { Clock } from '../domain/clock.js';
 import { systemClock } from '../domain/clock.js';
 import { describeError, toError, uidnaError } from '../domain/errors.js';

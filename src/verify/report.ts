@@ -8,7 +8,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import type { Attributed, Page, Token, TypographyStyle, UiDnaDocument, UiState } from '@rohzzn/uidna-schema';
+import type { Attributed, Page, Token, TypographyStyle, UiDnaDocument, UiState } from 'uidna-schema';
 import type { WorkflowContext } from '../application/context.js';
 import type { ScanRecord } from '../application/records.js';
 import { pngSize } from '../browser/capture.js';

@@ -12,7 +12,7 @@
  * asserts.
  */
 import { neverReplayed } from '../domain/safe-policy.js';
-import type { Action, ActionTarget, Transition, UiNode, UiState, Viewport } from '@rohzzn/uidna-schema';
+import type { Action, ActionTarget, Transition, UiNode, UiState, Viewport } from 'uidna-schema';
 import { stableStringify } from '../domain/digest.js';
 import { isFormControl, keptAttributes } from './attrs.js';
 import { comparePaths } from './components.js';

@@ -3,7 +3,7 @@
  * `src/styles/tokens.css` (a Tailwind `@theme` block plus `:root` reference
  * variables). Every token line carries its sample count and provenance kind.
  */
-import type { ProvenanceKind, Token, UiDnaDocument } from '@rohzzn/uidna-schema';
+import type { ProvenanceKind, Token, UiDnaDocument } from 'uidna-schema';
 import { compareStrings } from './jsx.js';
 import type { BreakpointPlan, GenerationModel } from './model.js';
 import { normalizeColor, normalizeFontFamily, tokenClassName, type TokenIndex } from './tailwind-map.js';

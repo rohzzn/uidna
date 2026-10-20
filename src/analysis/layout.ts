@@ -5,8 +5,8 @@
  * Properties the instrument dropped as UA defaults are reported with that
  * default (the capture contract defines a missing property as the default).
  */
-import type { Attributed, Box, LayoutConstraint, ProvenanceContext } from '@rohzzn/uidna-schema';
-import { measured, unknown } from '@rohzzn/uidna-schema';
+import type { Attributed, Box, LayoutConstraint, ProvenanceContext } from 'uidna-schema';
+import { measured, unknown } from 'uidna-schema';
 import { STYLE_DEFAULTS } from '../browser/style-properties.js';
 import { stateContext, styleValue, type CaptureMap, type EvidenceIndex } from './common.js';
 

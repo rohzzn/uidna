@@ -6,7 +6,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { formatIssues, validateUiDna, type UiDnaDocument } from '@rohzzn/uidna-schema';
+import { formatIssues, validateUiDna, type UiDnaDocument } from 'uidna-schema';
 import { createContext, type WorkflowContext } from '../application/context.js';
 import type { ScanRecord } from '../application/records.js';
 import { scanInterface } from '../application/scan.js';

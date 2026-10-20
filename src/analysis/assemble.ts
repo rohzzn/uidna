@@ -33,8 +33,8 @@ import type {
   UiDnaDocument,
   UiNode,
   UiState,
-} from '@rohzzn/uidna-schema';
-import { formatIssues, LimitationSchema, measured, UI_DNA_VERSION, unknown, validateUiDna } from '@rohzzn/uidna-schema';
+} from 'uidna-schema';
+import { formatIssues, LimitationSchema, measured, UI_DNA_VERSION, unknown, validateUiDna } from 'uidna-schema';
 import type { CapturedAsset, CapturedState } from '../browser/types.js';
 import type { ExploreRecord, ResponsiveRecord, ScanRecord, StateRecord } from '../application/records.js';
 import { assembleResponsive } from './responsive.js';

@@ -2,11 +2,11 @@
  * `scan_interface`: capture a page at each viewport into a new scan and
  * assemble the first UI DNA document from the base states.
  */
-import type { UiDnaDocument } from '@rohzzn/uidna-schema';
+import type { UiDnaDocument } from 'uidna-schema';
 import { emptyResponsiveRecord, measureResponsive, resolveResponsiveOptions } from './responsive.js';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Transition } from '@rohzzn/uidna-schema';
+import type { Transition } from 'uidna-schema';
 import { assembleDna } from '../analysis/index.js';
 import { redactUrl } from '../browser/redact.js';
 import type { BrowserSession, CapturedState } from '../browser/types.js';

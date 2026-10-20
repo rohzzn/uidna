@@ -18,7 +18,7 @@
  * read from the page: the policy chose them.
  */
 import { join } from 'node:path';
-import type { Transition, UiNode } from '@rohzzn/uidna-schema';
+import type { Transition, UiNode } from 'uidna-schema';
 import type { AttemptedInteraction } from '../application/records.js';
 import { redactUrl } from '../browser/redact.js';
 import { blockedByUiDna } from '../browser/session.js';

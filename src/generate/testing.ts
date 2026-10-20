@@ -25,7 +25,7 @@ import {
   type UiDnaDocument,
   type UiNode,
   type UiState,
-} from '@rohzzn/uidna-schema';
+} from 'uidna-schema';
 import { STYLE_DEFAULTS } from '../browser/style-properties.js';
 import { digestValue, stableStringify } from '../domain/digest.js';
 

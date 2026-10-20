@@ -11,7 +11,7 @@ import { collectionContainerPaths, planCollections, renderCollectionLib, type Co
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
-import { formatIssues, validateUiDna, type UiDnaDocument } from '@rohzzn/uidna-schema';
+import { formatIssues, validateUiDna, type UiDnaDocument } from 'uidna-schema';
 import type { GenerateRecord } from '../application/records.js';
 import { silentProgress, type ProgressReporter } from '../domain/budget.js';
 import { isoNow, systemClock, type Clock } from '../domain/clock.js';

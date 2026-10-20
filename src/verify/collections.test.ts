@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { UiNode } from '@rohzzn/uidna-schema';
+import type { UiNode } from 'uidna-schema';
 import { compareItemKeys, generatedItemKeys } from './collections.js';
 
 function node(id: string, parentId: string | null, attrs: Record<string, string>, childIds: string[] = [], visible = true): UiNode {

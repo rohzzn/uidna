@@ -5,7 +5,7 @@
  * the same action. A role-tree comparison cannot tell a sort apart from no
  * change (same rows, other order); this compares identity and order.
  */
-import type { UiNode } from '@rohzzn/uidna-schema';
+import type { UiNode } from 'uidna-schema';
 
 /** Keys of the rendered items under the generated container at `containerPath`, or null when the container is absent. */
 export function generatedItemKeys(nodes: readonly UiNode[], containerPath: string): string[] | null {

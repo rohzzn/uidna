@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ComponentsSchema } from '@rohzzn/uidna-schema';
+import { ComponentsSchema } from 'uidna-schema';
 import type { CapturedState } from '../browser/types.js';
 import { findComponents, VARIANT_IGNORED_PROPERTIES } from './components.js';
 import { buildFixtureACaptures, findNodes } from './testing.js';

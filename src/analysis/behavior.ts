@@ -16,7 +16,7 @@
  * `navigate` effect pointing at the link, because diffing the nodes of two
  * different pages would describe nothing a rule could reproduce.
  */
-import type { ActionTarget, BehaviorEffect, BehaviorRule, ObservedProvenance, Transition, UiNode, UiState } from '@rohzzn/uidna-schema';
+import type { ActionTarget, BehaviorEffect, BehaviorRule, ObservedProvenance, Transition, UiNode, UiState } from 'uidna-schema';
 import { stableStringify } from '../domain/digest.js';
 import { sequentialId } from '../domain/ids.js';
 import { comparePaths } from './common.js';

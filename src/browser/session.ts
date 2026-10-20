@@ -20,7 +20,7 @@
 import { readLayoutSignature, readStyleConditions, type LayoutSignatureReading, type StyleConditions } from './responsive.js';
 import { randomBytes } from 'node:crypto';
 import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, Locator, Page, Request, Route } from 'playwright';
-import type { Viewport } from '@rohzzn/uidna-schema';
+import type { Viewport } from 'uidna-schema';
 import type { Clock } from '../domain/clock.js';
 import { toError, uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';

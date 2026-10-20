@@ -4,7 +4,7 @@
  *
  * Layout:
  *   scan.json                      ScanRecord
- *   dna.json                       UiDnaDocument (see @rohzzn/uidna-schema)
+ *   dna.json                       UiDnaDocument (see uidna-schema)
  *   states/<stateId>/capture.json  CapturedState
  *   states/<stateId>/screenshot.png
  *   assets/<digest>.<ext>          stored asset copies
@@ -17,7 +17,7 @@
  *   export/                        evidence bundle
  */
 import { z } from 'zod';
-import { ActionSchema, ViewportSchema } from '@rohzzn/uidna-schema';
+import { ActionSchema, ViewportSchema } from 'uidna-schema';
 
 export const ScanStatusSchema = z.enum(['capturing', 'captured', 'exploring', 'explored', 'partial', 'failed']);
 export type ScanStatus = z.infer<typeof ScanStatusSchema>;

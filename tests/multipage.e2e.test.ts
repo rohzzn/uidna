@@ -8,7 +8,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseUiDna, type UiDnaDocument } from '@rohzzn/uidna-schema';
+import { parseUiDna, type UiDnaDocument } from 'uidna-schema';
 import type { DiffReport } from '../src/contracts/diff-report.js';
 import { serveStatic, type StaticServer } from '../src/application/static-server.js';
 import { REPO_ROOT, runCli, tempDir } from './helpers.js';

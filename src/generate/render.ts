@@ -9,7 +9,7 @@
  * it to the scanned node.
  */
 import type { CollectionPlan, CollectionPlanning } from './collections.js';
-import type { UiNode } from '@rohzzn/uidna-schema';
+import type { UiNode } from 'uidna-schema';
 import type { AssetRegistry, AssetResolution } from './assets.js';
 import { BOOLEAN_ATTRIBUTES, keptAttributes } from './attrs.js';
 import type { AttrCondition, BehaviorPlan, ClassCondition, FormBehavior, NodeBehavior, ScopeResolver, StateVar, TextCondition } from './behavior.js';

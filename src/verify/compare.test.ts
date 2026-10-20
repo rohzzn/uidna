@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
-import type { Box, Transition, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
+import type { Box, Transition, UiDnaDocument, UiNode } from 'uidna-schema';
 import { buildFixtureACapture, findNode } from '../analysis/testing.js';
 import { createSampleContext, sampleDocument, SAMPLE_SCAN_ID } from '../application/testing.js';
 import type { CapturedState } from '../browser/types.js';

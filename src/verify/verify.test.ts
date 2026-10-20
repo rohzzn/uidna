@@ -9,7 +9,7 @@ import { readdir, readFile, rm, stat } from 'node:fs/promises';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Transition, UiDnaDocument } from '@rohzzn/uidna-schema';
+import type { Transition, UiDnaDocument } from 'uidna-schema';
 import { createContext, type WorkflowContext } from '../application/context.js';
 import type { ScanRecord } from '../application/records.js';
 import { captureState, openSession, reassembleDna, scanInterface } from '../application/scan.js';

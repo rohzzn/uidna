@@ -4,7 +4,7 @@
  * filtered, sorted or reset a collection, classified by item identity
  * against the base items (see `classifyCollectionChange`).
  */
-import type { Collection, CollectionRule, Collections, CollectionView, Transition, UiNode, UiState } from '@rohzzn/uidna-schema';
+import type { Collection, CollectionRule, Collections, CollectionView, Transition, UiNode, UiState } from 'uidna-schema';
 import {
   chooseIdentity,
   classifyCollectionChange,

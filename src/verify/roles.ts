@@ -4,7 +4,7 @@
  * original and in the generated app. Entries are `role|name|expanded=…`
  * strings with normalized names, compared as multisets.
  */
-import type { RoleTreeNode } from '@rohzzn/uidna-schema';
+import type { RoleTreeNode } from 'uidna-schema';
 import { normalizeName } from './match.js';
 
 /** Entries added and removed between two role trees. */

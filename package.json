@@ -1,6 +1,6 @@
 {
   "name": "uidna-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Reverse-engineer any user interface into a UI DNA document, rebuild it as code you own, and prove it with a DiffReport. MCP server and CLI for coding agents.",
   "license": "MIT",
   "type": "module",
@@ -32,8 +32,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @rohzzn/uidna-schema && tsc -p tsconfig.build.json",
-    "typecheck": "npm run typecheck -w @rohzzn/uidna-schema && tsc -p tsconfig.json --noEmit",
+    "build": "npm run build -w uidna-schema && tsc -p tsconfig.build.json",
+    "typecheck": "npm run typecheck -w uidna-schema && tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
@@ -45,7 +45,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@rohzzn/uidna-schema": "^0.3.0",
+    "uidna-schema": "^0.3.0",
     "commander": "^15.0.0",
     "pixelmatch": "^8.0.0",
     "playwright": "^1.64.0",

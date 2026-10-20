@@ -5,6 +5,14 @@ All notable changes to `uidna-mcp` (published as `@rohzzn/uidna` up to 0.2.0) ar
 semantic versioning. The document schema has its own changelog in
 [`packages/schema/CHANGELOG.md`](packages/schema/CHANGELOG.md).
 
+## [0.3.1] - 2026-10-20
+
+### Changed
+
+- The schema is published as `uidna-schema` (`npm install uidna-schema`), and `uidna-mcp`
+  depends on it. `@rohzzn/uidna-schema` is deprecated and points there. Nothing in the
+  schema or the tools changed.
+
 ## [0.3.0] - 2026-10-20
 
 Completes Phase 2 with responsive-rule inference and search, filter and sort inference,

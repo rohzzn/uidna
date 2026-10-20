@@ -4,7 +4,7 @@
  * across pages, and how a same-origin link resolves to a route. A single-page
  * document without an explicit router keeps the Phase 1 layout untouched.
  */
-import type { Page, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
+import type { Page, UiDnaDocument, UiNode } from 'uidna-schema';
 import { uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { compareStrings, pascalCase } from './jsx.js';

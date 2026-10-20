@@ -4,7 +4,7 @@
  * `snapshot()` share this code so that the digests of an unchanged page are
  * identical whichever one computed them.
  */
-import type { A11yProps, RoleTreeNode, UiNode } from '@rohzzn/uidna-schema';
+import type { A11yProps, RoleTreeNode, UiNode } from 'uidna-schema';
 import { digestValue } from '../domain/digest.js';
 import type { AxIndex } from './ax.js';
 import { collapseWhitespace } from './ax.js';

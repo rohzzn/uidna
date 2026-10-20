@@ -9,7 +9,7 @@
  * identity attribute shared by every item with distinct values, else a
  * digest of the item's text.
  */
-import type { UiNode } from '@rohzzn/uidna-schema';
+import type { UiNode } from 'uidna-schema';
 import { digestValue } from './digest.js';
 
 /** Minimum number of repeated items for a container to be a collection. */

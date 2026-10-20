@@ -7,7 +7,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { formatIssues, validateUiDna } from '@rohzzn/uidna-schema';
+import { formatIssues, validateUiDna } from 'uidna-schema';
 import { ScanStore } from '../src/application/scan-store.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');

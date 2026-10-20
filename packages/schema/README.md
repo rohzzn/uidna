@@ -1,4 +1,4 @@
-# @rohzzn/uidna-schema
+# uidna-schema
 
 The UI DNA document schema. A UI DNA document describes a user interface the
 way an engineer would need it described to rebuild it: pages and navigation,
@@ -16,11 +16,11 @@ The schema is framework neutral. It contains no React, Tailwind or other
 output-framework terms, so any generator or tool can consume it.
 
 ```ts
-import { parseUiDna, validateUiDna, UI_DNA_VERSION } from '@rohzzn/uidna-schema';
+import { parseUiDna, validateUiDna, UI_DNA_VERSION } from 'uidna-schema';
 
 const result = validateUiDna(JSON.parse(text));
 if (!result.success) console.error(result.error.issues);
 ```
 
-The JSON Schema is published at `@rohzzn/uidna-schema/ui-dna.schema.json`. The full
+The JSON Schema is published at `uidna-schema/ui-dna.schema.json`. The full
 reference lives in `docs/ui-dna.md` in the UI DNA repository.

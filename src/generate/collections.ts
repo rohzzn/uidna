@@ -20,7 +20,7 @@
  */
 import { emissionInState, transitionClasses, viewInState } from './styles.js';
 import type { TokenIndex } from './tailwind-map.js';
-import type { Collection, CollectionRule, UiDnaDocument, UiNode } from '@rohzzn/uidna-schema';
+import type { Collection, CollectionRule, UiDnaDocument, UiNode } from 'uidna-schema';
 import { CollectionIndex, itemKeys, parseDate, parseNumber } from '../domain/collections.js';
 import type { Expectation } from './behavior.js';
 import { jsString, type JsxAttrValue } from './jsx.js';

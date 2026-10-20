@@ -6,7 +6,7 @@
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { formatIssues, validateUiDna, type Transition, type UiDnaDocument } from '@rohzzn/uidna-schema';
+import { formatIssues, validateUiDna, type Transition, type UiDnaDocument } from 'uidna-schema';
 import { createContext, type WorkflowContext } from '../application/context.js';
 import type { ScanRecord, StateRecord } from '../application/records.js';
 import { reassembleDna, scanInterface } from '../application/scan.js';

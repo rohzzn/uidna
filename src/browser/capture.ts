@@ -10,7 +10,7 @@ import { redactUrl } from './redact.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { CDPSession, Page } from 'playwright';
-import type { Viewport } from '@rohzzn/uidna-schema';
+import type { Viewport } from 'uidna-schema';
 import type { Clock } from '../domain/clock.js';
 import { sha256 } from '../domain/digest.js';
 import { toError, uidnaError } from '../domain/errors.js';

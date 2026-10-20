@@ -16,7 +16,7 @@
  *   control. Values are synthetic by construction: they come from this
  *   module or from the caller's `formValues`, never from the page.
  */
-import type { Transition, UiNode } from '@rohzzn/uidna-schema';
+import type { Transition, UiNode } from 'uidna-schema';
 import type { CapturedState, NetworkEntry } from '../browser/types.js';
 
 /** Interaction kinds the policies decide about. */

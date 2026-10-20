@@ -4,7 +4,7 @@
  * Nothing here embeds a timestamp: two runs over the same document produce
  * byte-identical output.
  */
-import type { Asset } from '@rohzzn/uidna-schema';
+import type { Asset } from 'uidna-schema';
 import type { PlaceholderRecord } from './assets.js';
 import type { BehaviorPlan, FormBehavior } from './behavior.js';
 import type { ComponentPlanning } from './components.js';

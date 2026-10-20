@@ -3,7 +3,7 @@
  * is stored with provenance `inferred` / `agent`; measured values are never
  * overwritten. The document is re-validated before it is written.
  */
-import { inferred, validateUiDna, formatIssues, type AnnotationRecord, type BehaviorRule, type InferredProvenance, type UiDnaDocument } from '@rohzzn/uidna-schema';
+import { inferred, validateUiDna, formatIssues, type AnnotationRecord, type BehaviorRule, type InferredProvenance, type UiDnaDocument } from 'uidna-schema';
 import type { AnnotationPatch, annotateDna as annotateDnaContract } from '../contracts/tools.js';
 import type { ToolInput, ToolOutput } from '../contracts/types.js';
 import { isoNow } from '../domain/clock.js';

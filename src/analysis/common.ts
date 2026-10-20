@@ -2,7 +2,7 @@
  * Helpers shared by the analysis modules: per-state provenance contexts,
  * style lookups that honour the dropped UA defaults, and node-path utilities.
  */
-import type { ProvenanceContext, UiNode } from '@rohzzn/uidna-schema';
+import type { ProvenanceContext, UiNode } from 'uidna-schema';
 import { STYLE_DEFAULTS } from '../browser/style-properties.js';
 import type { CapturedState } from '../browser/types.js';
 

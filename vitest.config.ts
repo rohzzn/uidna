@@ -6,7 +6,7 @@ const schemaSrc = fileURLToPath(new URL('./packages/schema/src/index.ts', import
 export default defineConfig({
   resolve: {
     alias: {
-      '@rohzzn/uidna-schema': schemaSrc,
+      'uidna-schema': schemaSrc,
     },
   },
   test: {

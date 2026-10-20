@@ -4,7 +4,7 @@
  * the data as a typed constant. Nothing is wired into components: a mock is
  * evidence of what the backend answered, not a backend.
  */
-import type { Asset } from '@rohzzn/uidna-schema';
+import type { Asset } from 'uidna-schema';
 import { REDACTED, SENSITIVE_PARAM_PATTERN } from '../browser/redact.js';
 import { camelCase, commentText, compareStrings, jsString, pascalCase } from './jsx.js';
 import type { MockRecord } from './project.js';

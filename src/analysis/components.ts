@@ -6,8 +6,8 @@
  * the instrument only reports what matched, where, and how the instances
  * differ (props) and how their root styles differ (variants).
  */
-import type { Box, ComponentDefinition, ComponentInstance, ComponentProp, ComponentVariant, Components, UiNode } from '@rohzzn/uidna-schema';
-import { measured, unknown } from '@rohzzn/uidna-schema';
+import type { Box, ComponentDefinition, ComponentInstance, ComponentProp, ComponentVariant, Components, UiNode } from 'uidna-schema';
+import { measured, unknown } from 'uidna-schema';
 import type { CapturedState } from '../browser/types.js';
 import { digestValue } from '../domain/digest.js';
 import { fingerprintWithIndex, NodeIndex, type NodeFingerprint } from '../domain/fingerprint.js';

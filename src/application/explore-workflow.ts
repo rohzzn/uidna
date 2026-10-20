@@ -9,7 +9,7 @@ import { isoNow } from '../domain/clock.js';
 import { describeError, uidnaError } from '../domain/errors.js';
 import { envelope, type Envelope } from '../domain/evidence.js';
 import { err, ok, type Result } from '../domain/result.js';
-import type { Transition } from '@rohzzn/uidna-schema';
+import type { Transition } from 'uidna-schema';
 import { effectKey, exploreInteractions as runExplorer, keyPressEffectKey } from '../explore/index.js';
 import type { WorkflowContext } from './context.js';
 import { withOutRoot } from './context.js';

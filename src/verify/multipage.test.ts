@@ -16,7 +16,7 @@
 import { cp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Transition, UiDnaDocument, UiState } from '@rohzzn/uidna-schema';
+import type { Transition, UiDnaDocument, UiState } from 'uidna-schema';
 import { createContext, type WorkflowContext } from '../application/context.js';
 import type { ScanRecord } from '../application/records.js';
 import { openSession, reassembleDna, scanInterface } from '../application/scan.js';

@@ -14,7 +14,7 @@
  *
  * Conditions are deduplicated across pages by text and stylesheet.
  */
-import type { Limitation, MediaCondition, Responsive, ResponsiveBreakpoint, ResponsiveRule } from '@rohzzn/uidna-schema';
+import type { Limitation, MediaCondition, Responsive, ResponsiveBreakpoint, ResponsiveRule } from 'uidna-schema';
 import type { CapturedState } from '../browser/types.js';
 import type { PageResponsiveRecord, ResponsiveRecord } from '../application/records.js';
 import { reconcileBreakpoints } from '../domain/responsive.js';

@@ -7,7 +7,7 @@
  * not navigations may be replayed on the way, and the chain is bounded.
  * Pure and deterministic.
  */
-import type { Transition, UiState } from '@rohzzn/uidna-schema';
+import type { Transition, UiState } from 'uidna-schema';
 
 /** Longest chain of producing transitions replayed to reach a derived from-state. */
 export const MAX_REPLAY_CHAIN = 8;

@@ -8,7 +8,7 @@
  * order, widest first).
  */
 import { z } from 'zod';
-import type { Page, UiDnaDocument, UiState } from '@rohzzn/uidna-schema';
+import type { Page, UiDnaDocument, UiState } from 'uidna-schema';
 import { uidnaError } from '../domain/errors.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { MANIFEST_FILE } from '../generate/project.js';

@@ -5,7 +5,7 @@
  * refused producer is named.
  */
 import { describe, expect, it } from 'vitest';
-import type { Transition, UiState } from '@rohzzn/uidna-schema';
+import type { Transition, UiState } from 'uidna-schema';
 import { multiPageFormDocument } from './testing.js';
 import { MAX_REPLAY_CHAIN, replayableStep, sideEffectCause, traceToBase, unreplayableStepReason } from './trace.js';
 

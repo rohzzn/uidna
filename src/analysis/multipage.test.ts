@@ -6,7 +6,7 @@
  * discoveredVia, unlisted pages, scans without a page list).
  */
 import { describe, expect, it } from 'vitest';
-import { formatIssues, validateUiDna, type UiDnaDocument } from '@rohzzn/uidna-schema';
+import { formatIssues, validateUiDna, type UiDnaDocument } from 'uidna-schema';
 import type { ExploreRecord, ScanRecord } from '../application/records.js';
 import type { CapturedAsset, CapturedState } from '../browser/types.js';
 import { fixedClock } from '../domain/clock.js';

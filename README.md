@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/uidna-mcp"><img alt="npm version" src="https://img.shields.io/npm/v/uidna-mcp?label=uidna-mcp&color=2f5bea"></a>
-  <a href="https://www.npmjs.com/package/@rohzzn/uidna-schema"><img alt="schema version" src="https://img.shields.io/npm/v/%40rohzzn%2Fuidna-schema?label=%40rohzzn%2Fuidna-schema&color=2f5bea"></a>
+  <a href="https://www.npmjs.com/package/uidna-schema"><img alt="schema version" src="https://img.shields.io/npm/v/uidna-schema?label=uidna-schema&color=2f5bea"></a>
   <a href="https://github.com/rohzzn/uidna/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rohzzn/uidna/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1f9d6a"></a>
   <img alt="Node 20.19+" src="https://img.shields.io/badge/node-%E2%89%A520.19-d98a1f">
@@ -115,7 +115,7 @@ grid, an image, an FAQ accordion and a footer, at 1280, 768 and 390 pixels wide.
 - Twelve tools with one evidence envelope, identical over MCP and the CLI; `setup` and
   `doctor` on the CLI; `--json`, a config file and debug logging.
 - A versioned, framework-neutral schema published separately as
-  [`@rohzzn/uidna-schema`](packages/schema).
+  [`uidna-schema`](packages/schema).
 - The generated project builds; its build, the recorded transitions, and an injected CSS
   and behavior regression are each a CI test.
 
@@ -304,7 +304,7 @@ yours; UI DNA reads the page and performs the same safe interactions.
 ## Development
 
 ```text
-packages/schema/   @rohzzn/uidna-schema: Zod schema, JSON Schema, types, changelog
+packages/schema/   uidna-schema: Zod schema, JSON Schema, types, changelog
 src/domain/        fingerprints, clustering, colors, safe-action and forms policy, Result, budgets
 src/contracts/     tool contracts and the canonical catalog (docs/tools.md is generated)
 src/browser/       Playwright launch + CDP attach adapters, capture, robots, redaction, JSON bodies

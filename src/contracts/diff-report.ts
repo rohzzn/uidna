@@ -5,7 +5,7 @@
  * single opaque score.
  */
 import { z } from 'zod';
-import { ActionSchema, BoxSchema, ViewportSchema } from '@rohzzn/uidna-schema';
+import { ActionSchema, BoxSchema, ViewportSchema } from 'uidna-schema';
 
 export const FINDING_CATEGORIES = ['layout', 'typography', 'color', 'missing', 'asset', 'responsive', 'behavior'] as const;
 export type FindingCategory = (typeof FINDING_CATEGORIES)[number];

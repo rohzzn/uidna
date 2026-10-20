@@ -17,7 +17,7 @@ import { compareBreakpointSides } from './responsive.js';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
-import type { Box, Transition, UiDnaDocument, UiNode, UiState } from '@rohzzn/uidna-schema';
+import type { Box, Transition, UiDnaDocument, UiNode, UiState } from 'uidna-schema';
 import type { WorkflowContext } from '../application/context.js';
 import type { ScanRecord } from '../application/records.js';
 import { openSession, pageKey } from '../application/scan.js';

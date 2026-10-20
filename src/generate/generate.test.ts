@@ -1,8 +1,8 @@
-import { UI_DNA_VERSION } from '@rohzzn/uidna-schema';
+import { UI_DNA_VERSION } from 'uidna-schema';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { formatIssues, inferred, validateUiDna, type UiDnaDocument, type UiNode } from '@rohzzn/uidna-schema';
+import { formatIssues, inferred, validateUiDna, type UiDnaDocument, type UiNode } from 'uidna-schema';
 import type { GenerateRecord } from '../application/records.js';
 import { fixedClock } from '../domain/clock.js';
 import { unwrap } from '../domain/result.js';

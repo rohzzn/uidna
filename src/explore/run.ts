@@ -9,7 +9,7 @@
 import { detectCollections } from '../domain/collections.js';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Action, ActionTarget, Transition, UiNode } from '@rohzzn/uidna-schema';
+import type { Action, ActionTarget, Transition, UiNode } from 'uidna-schema';
 import type { WorkflowContext } from '../application/context.js';
 import type { AttemptedInteraction, ScanRecord, SkippedRecord } from '../application/records.js';
 import { relativizeCapture } from '../application/scan.js';

@@ -3,7 +3,7 @@
  * takes on either side of a located breakpoint (read while probing) with the
  * generated app's at the same widths.
  */
-import type { ResponsiveRule } from '@rohzzn/uidna-schema';
+import type { ResponsiveRule } from 'uidna-schema';
 import { SIGNATURE_PROPERTIES } from '../domain/responsive.js';
 
 /** A layout value that differs between the original and the generated app at one width. */

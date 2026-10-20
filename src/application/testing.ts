@@ -6,7 +6,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { measured, observed, UI_DNA_VERSION, type UiDnaDocument, type UiNode, type UiState } from '@rohzzn/uidna-schema';
+import { measured, observed, UI_DNA_VERSION, type UiDnaDocument, type UiNode, type UiState } from 'uidna-schema';
 import type { BrowserAvailability, BrowserProvider } from '../browser/types.js';
 import { fixedClock, type Clock } from '../domain/clock.js';
 import { uidnaError } from '../domain/errors.js';

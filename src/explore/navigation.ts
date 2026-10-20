@@ -8,7 +8,7 @@
  * captures, and the originating page is loaded again. A link whose click
  * lands anywhere else is reported, never recorded as a transition.
  */
-import type { Transition } from '@rohzzn/uidna-schema';
+import type { Transition } from 'uidna-schema';
 import { pageKey } from '../application/scan.js';
 import { redactUrl } from '../browser/redact.js';
 import { isoNow } from '../domain/clock.js';

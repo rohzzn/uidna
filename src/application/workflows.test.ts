@@ -1,7 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { validateUiDna } from '@rohzzn/uidna-schema';
+import { validateUiDna } from 'uidna-schema';
 import { annotateDna } from './annotate.js';
 import { exportEvidence } from './export.js';
 import { extractTokens, inspectDna, inspectElement, searchComponents } from './inspect.js';

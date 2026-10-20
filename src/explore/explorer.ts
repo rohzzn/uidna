@@ -13,7 +13,7 @@
  */
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Transition, UiNode } from '@rohzzn/uidna-schema';
+import type { Transition, UiNode } from 'uidna-schema';
 import type { WorkflowContext } from '../application/context.js';
 import type { ExploreRecord, ScanRecord, StateRecord } from '../application/records.js';
 import { openSession, pageKey } from '../application/scan.js';

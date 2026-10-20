@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Responsive, UiDnaDocument } from '@rohzzn/uidna-schema';
+import type { Responsive, UiDnaDocument } from 'uidna-schema';
 import { fixedClock } from '../domain/clock.js';
 import { unwrap } from '../domain/result.js';
 import { generateProject } from './index.js';
