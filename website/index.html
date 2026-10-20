@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI&nbsp;DNA · reverse-engineer any interface</title>
+<meta name="description" content="UI DNA measures a live interface, hands your coding agent a document with provenance on every value, rebuilds it as React you own, and proves the rebuild.">
+<meta name="theme-color" content="#f1efe8">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://rohzzn.github.io/uidna/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="UI DNA · reverse-engineer any interface">
+<meta property="og:description" content="Measure a live interface, hand your coding agent a document with provenance on every value, rebuild it as React you own, and prove the rebuild.">
+<meta property="og:url" content="https://rohzzn.github.io/uidna/">
+<meta name="twitter:card" content="summary">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=Martian+Mono:wdth,wght@75..112.5,100..800&amp;display=swap">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<div class="app" id="app">
+
+<a class="corner" href="#specimen" data-go="specimen" aria-label="UI DNA, back to sheet 01"><svg viewBox="0 0 22 22" aria-hidden="true"><path d="M7 3.5c0 4.5 8 3 8 7.5s-8 3-8 7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15 3.5c0 4.5-8 3-8 7.5s8 3 8 7.5" fill="none" stroke="#2244ff" stroke-width="1.6"/><path d="M8.2 6.4h5.6M7.4 11h7.2M8.2 15.6h5.6" stroke="currentColor" stroke-opacity=".45" stroke-width="1"/></svg></a>
+<canvas class="ruler-x" id="rx" aria-hidden="true"></canvas>
+<canvas class="ruler-y" id="ry" aria-hidden="true"></canvas>
+
+<main class="track" id="track" tabindex="0" aria-label="UI DNA, a drawing set of nine sheets. Scroll sideways or use the arrow keys.">
+
+<!-- ═════════════ 01 SPECIMEN ═════════════ -->
+<section class="sheet s-spec" id="specimen" data-n="01" data-name="Specimen" aria-labelledby="wm">
+<div class="meta"><p class="lab"><b>Sheet 01</b> / 09 · Specimen</p><p class="lab">Drawing set UI‑DNA · rev 0.3.0 · every dimension on this sheet was measured by this page, live, in css px</p></div>
+
+<div class="wm-zone">
+<h1 class="wordmark" id="wm"><span class="gl" data-g="U">U</span><span class="gl" data-g="I">I</span><span class="gl gap"> </span><span class="gl" id="gl-d" data-g="D">D</span><span class="gl" data-g="N">N</span><span class="gl" id="gl-a" data-g="A">A</span><span class="bl" id="wm-bl" aria-hidden="true"></span></h1>
+</div>
+<div class="ov dimx" id="wm-dim" aria-hidden="true"><span><b data-m="wm-w">0</b> px · width · measured</span></div>
+<div class="ov hline" id="wm-base" aria-hidden="true"><span class="lab">baseline · y <b data-m="wm-y">0</b></span></div>
+<div class="ov hline dash" id="wm-cap" aria-hidden="true"><span class="lab">cap height</span></div>
+<div class="ov dimy" id="wm-caph" aria-hidden="true"><span><b data-m="wm-ch">0</b></span></div>
+<div class="ov gl-dim" id="gl-dim" aria-hidden="true"><span></span></div>
+
+<div class="co co-font" data-lead="#gl-a" data-at=".5,.04" data-tone="blue"><span class="lab">type · measured</span><span>Archivo 800 · wdth 125</span><span><b data-m="wm-fs">0</b> px / .74 · −0.05em</span></div>
+<div class="co co-ink" data-lead="#gl-a" data-at=".86,.8" data-tone="red"><span class="lab">color · probe</span><span><i class="sw" style="background: #121211"></i>#121211 · ink</span><span>source computed-style</span></div>
+<div class="co co-glyph" data-lead="#gl-n-probe" data-at=".5,.5"><span class="lab">hover a letter</span><span>its advance width is</span><span>measured on the spot</span></div>
+<i class="probe-dot" id="gl-n-probe" aria-hidden="true"></i>
+
+<div class="spec-grid">
+<div class="spec-a">
+<p class="big">Reverse‑engineer any interface. Rebuild it as code you own. <mark>Prove it.</mark></p>
+<p class="body">UI&nbsp;DNA measures a live interface down to the token, hands your coding agent a document with provenance on every value, generates a React project, and checks the rebuild against the original.</p>
+<div class="row">
+<span class="install"><span><b>$</b> npm install -g @rohzzn/uidna</span><button type="button" class="copy" data-copy="npm install -g @rohzzn/uidna" aria-label="Copy the install command"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 5.5v-3h-8v8h3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></button></span>
+<button type="button" class="btn" data-go="capture">Begin at sheet 02 <span aria-hidden="true">→</span></button>
+</div>
+<p class="lab hint"><kbd>X</kbd> x-ray this page <span class="sep"></span> <kbd>←</kbd><kbd>→</kbd> or scroll to move along the set</p>
+</div>
+
+<div class="plate" aria-label="Rated values">
+<i class="rv rv1"></i><i class="rv rv2"></i><i class="rv rv3"></i><i class="rv rv4"></i>
+<div class="plate-top"><span>UI&nbsp;DNA</span><span>Type 0.3.0</span></div>
+<dl class="plate-rows">
+<div><dt>Transitions replayed</dt><dd>73/73</dd><em>Fixture A</em></div>
+<div><dt>Pixel diff at 1280 px</dt><dd>0.66 %</dd><em>Fixture A</em></div>
+<div><dt>Breakpoints located</dt><dd>600 · 960 · 1100</dd><em>Fixture B</em></div>
+<div><dt>Generated tests passed</dt><dd>111/111</dd><em>Fixture B</em></div>
+<div><dt>Writes to the server</dt><dd>0</dd><em>Fixture B</em></div>
+</dl>
+<div class="plate-foot"><span>Ser. @rohzzn/uidna</span><span>MIT</span><span>Node ≥ 20.19</span></div>
+</div>
+
+<div class="notes">
+<p class="lab"><b>General notes</b></p>
+<ol class="gn">
+<li>No model calls. UI&nbsp;DNA measures; your agent reasons.</li>
+<li>No API keys and no account.</li>
+<li>Runs on your machine, in a Chromium that Playwright installs.</li>
+<li>Twelve tools over MCP, the same twelve on the CLI.</li>
+</ol>
+<a class="cont" href="#capture" data-go="capture"><span class="lab">Continued on sheet 02</span><svg viewBox="0 0 64 12" aria-hidden="true"><path d="M0 6h60M54 1l6 5-6 5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></a>
+</div>
+</div>
+<svg class="ink" aria-hidden="true"></svg>
+</section>
+
+<!-- ═════════════ 02 CAPTURE ═════════════ -->
+<section class="sheet s-cap" id="capture" data-n="02" data-name="Capture" aria-labelledby="t2">
+<div class="meta"><p class="lab"><b>Sheet 02</b> / 09 · Capture · exploded view</p><p class="lab">Fixture A · the marketing page UI&nbsp;DNA rebuilds in CI</p></div>
+<div class="col-text">
+<p class="lab"><b>02</b> Capture</p>
+<h2 class="big" id="t2">Every page, every viewport, taken apart.</h2>
+<p class="body">Chromium loads each page at each viewport and records five layers per state: the screenshot, every box, the computed styles, the accessibility tree and the DOM.</p>
+<div class="ctrl">
+<span class="lab">Viewport</span>
+<div class="seg" role="group" aria-label="Viewport width"><button type="button" class="chip" data-vw="1280" aria-pressed="true">1280</button><button type="button" class="chip" data-vw="768" aria-pressed="false">768</button><button type="button" class="chip" data-vw="390" aria-pressed="false">390</button></div>
+</div>
+<div class="ctrl">
+<label class="lab" for="explode">Explode</label>
+<input class="slider" type="range" id="explode" min="0" max="100" value="64">
+</div>
+<table class="spec">
+<tr><th>Viewports</th><td>1280 · 768 · 390</td></tr>
+<tr><th>Nodes per state</th><td>71</td></tr>
+<tr><th>Assets</th><td>1 image</td></tr>
+<tr><th>Width conditions</th><td>2 · 768 · 1024</td></tr>
+<tr><th>Requests that write</th><td>0</td></tr>
+</table>
+</div>
+<div class="iso-wrap" aria-hidden="true">
+<div class="iso" id="iso" data-vw="1280">
+<div class="lyr" style="--i: 0" data-layer="0"><div class="mini" data-mini="full"></div><i class="anc"></i></div>
+<div class="lyr ghost" style="--i: 1" data-layer="1"><div class="mini" data-mini="boxes"></div><i class="anc"></i></div>
+<div class="lyr ghost styl" style="--i: 2" data-layer="2"><div class="mini" data-mini="styles"></div><i class="anc"></i></div>
+<div class="lyr txt" style="--i: 3" data-layer="3"><pre>banner
+├─ link "Lumen"
+├─ navigation
+│  ├─ link "Features"
+│  ├─ link "Pricing"
+│  ├─ link "FAQ"
+│  └─ link "Get started"
+main
+├─ heading "Notes that think with you" · 1
+├─ paragraph
+├─ link "Start writing"
+├─ link "See how it works"
+├─ img "illustration"
+├─ heading "Everything in one place" · 2
+└─ list · 3 articles</pre><i class="anc"></i></div>
+<div class="lyr txt dom" style="--i: 4" data-layer="4"><pre>&lt;header class="site-header"&gt;
+  &lt;nav&gt;&lt;a class="brand"&gt;…&lt;/a&gt;
+    &lt;ul class="menu"&gt;…4&lt;/ul&gt;
+    &lt;button class="toggle"&gt;
+&lt;main&gt;
+  &lt;section class="hero"&gt;
+    &lt;span class="eyebrow"&gt;
+    &lt;h1&gt;Notes that think…
+    &lt;p class="lead"&gt;
+    &lt;a class="button"&gt;×2
+    &lt;img src="illustration.svg"&gt;
+  &lt;section class="features"&gt;
+    &lt;h2&gt; &lt;div class="grid"&gt;
+      &lt;article class="card"&gt;×3
+  &lt;section class="faq"&gt;
+    &lt;details&gt;×3</pre><i class="anc"></i></div>
+</div>
+</div>
+<ol class="iso-labels">
+<li class="co" data-layer="4" data-lead=".lyr[data-layer='4'] .anc" data-tone="ink"><span class="lab">Layer 5 · DOM</span><span>71 nodes · tags, classes, attributes</span></li>
+<li class="co" data-layer="3" data-lead=".lyr[data-layer='3'] .anc" data-tone="green"><span class="lab">Layer 4 · Accessibility</span><span>roles, names, levels, states</span></li>
+<li class="co" data-layer="2" data-lead=".lyr[data-layer='2'] .anc" data-tone="red"><span class="lab">Layer 3 · Styles</span><span>computed, per node, per state</span></li>
+<li class="co" data-layer="1" data-lead=".lyr[data-layer='1'] .anc" data-tone="blue"><span class="lab">Layer 2 · Boxes</span><span>geometry for every node</span></li>
+<li class="co" data-layer="0" data-lead=".lyr[data-layer='0'] .anc" data-tone="ink"><span class="lab">Layer 1 · Screenshot</span><span class="vw-note">1280 px · full page png</span></li>
+</ol>
+<svg class="ink" aria-hidden="true"></svg>
+</section>
+
+<!-- ═════════════ 03 EXPLORE ═════════════ -->
+<section class="sheet s-exp" id="explore" data-n="03" data-name="Explore" aria-labelledby="t3">
+<div class="meta"><p class="lab"><b>Sheet 03</b> / 09 · Explore · state diagram</p><p class="lab">Pick a state to open its detail</p></div>
+<div class="col-text">
+<p class="lab"><b>03</b> Explore</p>
+<h2 class="big" id="t3">Performed, recorded, undone.</h2>
+<p class="body">Every safe interaction: hover, focus, keys and safe clicks. Each action is snapshotted, performed, diffed and reverted. Every request that would write is blocked for the whole run.</p>
+<table class="spec">
+<tr><th>Interactions tried</th><td>88</td></tr>
+<tr><th>Transitions recorded</th><td>73</td></tr>
+<tr><th>Skipped, with reasons</th><td>44</td></tr>
+<tr><th>POST requests sent</th><td class="ok">0</td></tr>
+</table>
+<div class="net" aria-label="Network while exploring Fixture B">
+<p class="lab">Network while exploring · Fixture B</p>
+<div><b>GET</b><span>/api/orders.json</span><em>200</em></div>
+<div class="no"><b>POST</b><span>Archive, a row action</span><em>blocked</em></div>
+<div><b>GET</b><span>/styles.css</span><em>200</em></div>
+<div class="no"><b>BEACON</b><span>sent while unloading</span><em>blocked</em></div>
+</div>
+</div>
+<figure class="graph">
+<svg viewBox="0 0 560 620" id="graph" role="group" aria-label="State diagram of Fixture A"></svg>
+</figure>
+<aside class="detail" id="detail" aria-live="polite"></aside>
+<svg class="ink" aria-hidden="true"></svg>
+</section>
+
+<!-- ═════════════ 04 MEASURE ═════════════ -->
+<section class="sheet s-mea" id="measure" data-n="04" data-name="Measure" aria-labelledby="t4">
+<div class="meta"><p class="lab"><b>Sheet 04</b> / 09 · Measure · parts list</p><p class="lab">Selection from Fixture A at 1280 px · hover a row or a balloon</p></div>
+<div class="col-text">
+<p class="lab"><b>04</b> Measure</p>
+<h2 class="big" id="t4">Values become tokens. Structure becomes components.</h2>
+<p class="body">Measured values cluster into tokens with sample counts. Structural fingerprints become component candidates, matched across pages; repeated items become collections.</p>
+</div>
+<div class="mea-fig">
+<div class="frame" id="mea-frame"><div class="mini" data-mini="full"></div></div>
+<div class="balloons" id="balloons"></div>
+</div>
+<div class="bom-wrap">
+<p class="lab"><b>Parts list</b> · 10 colors · 17 type styles · 12 spacing · 7 components</p>
+<table class="bom" id="bom">
+<thead><tr><th>Item</th><th>Designation</th><th>Value</th><th>Kind · source</th></tr></thead>
+<tbody></tbody>
+</table>
+</div>
+<svg class="ink" aria-hidden="true"></svg>
+</section>
+
+<!-- ═════════════ 05 BREAKPOINTS ═════════════ -->
+<section class="sheet s-bp" id="breakpoints" data-n="05" data-name="Breakpoints" aria-labelledby="t5">
+<div class="meta"><p class="lab"><b>Sheet 05</b> / 09 · Breakpoints and collections</p><p class="lab">Fixture B · an orders dashboard · drag the frame's edge</p></div>
+<div class="bp-head">
+<div>
+<p class="lab"><b>05</b> Breakpoints · collections</p>
+<h2 class="big" id="t5">Breakpoints, located to the pixel.</h2>
+</div>
+<p class="body">UI&nbsp;DNA reads the stylesheet’s width conditions, then resizes one pixel either side to confirm each threshold. On Fixture B it found 600, 960 and 1100 px. None was a scanned width.</p>
+<div class="brackets"><span><b>600</b>599 → 600</span><span><b>960</b>959 → 960</span><span><b>1100</b>1099 → 1100</span></div>
+</div>
+<div class="bp-stage">
+<div class="bp-ruler" id="bp-ruler" aria-hidden="true"></div>
+<div class="bp-frame-wrap">
+<div class="bp-frame" id="bp-frame">
+<div class="fb" id="fb">
+<div class="fb-top"><span class="fb-brand"><i></i>Fixture B</span><span class="fb-burger" aria-hidden="true"><i></i><i></i><i></i></span><span class="fb-user">MR</span></div>
+<div class="fb-body">
+<nav class="fb-side" aria-label="Fixture B sections"><span class="on"><i></i><b>Orders</b></span><span><i></i><b>Customers</b></span><span><i></i><b>Products</b></span><span><i></i><b>Reports</b></span><span><i></i><b>Settings</b></span></nav>
+<div class="fb-main">
+<div class="fb-title"><b>Orders</b><span id="fb-count">6 orders</span></div>
+<div class="fb-tools">
+<label class="sr" for="fb-q">Search orders</label>
+<input class="fb-search" id="fb-q" type="search" placeholder="Search orders" autocomplete="off">
+<div class="fb-chips" role="group" aria-label="Status"><button type="button" data-f="all" aria-pressed="true">All</button><button type="button" data-f="Pending" aria-pressed="false">Pending</button><button type="button" data-f="Shipped" aria-pressed="false">Shipped</button><button type="button" data-f="Refunded" aria-pressed="false">Refunded</button></div>
+<label class="sr" for="fb-sel">Status</label>
+<select class="fb-select" id="fb-sel"><option value="all">All statuses</option><option>Pending</option><option>Shipped</option><option>Refunded</option></select>
+<button type="button" class="fb-sort" id="fb-sort" aria-pressed="false">Total ↕</button>
+</div>
+<div class="fb-table" id="fb-table" role="table" aria-label="Orders"></div>
+</div>
+</div>
+</div>
+</div>
+<span class="bp-handle" aria-hidden="true"></span>
+<span class="bp-w" id="bp-w" aria-hidden="true"></span>
+</div>
+<label class="sr" for="bp-range">Viewport width of Fixture B</label>
+<input type="range" class="bp-range" id="bp-range" min="320" max="1440" value="1180">
+</div>
+<p class="bp-rule"><span class="lab">Collection rule</span><code id="bp-rule">base · 6 items · identity by order id</code><span class="lab dim2">Fixture B: 32 rules recorded</span></p>
+<svg class="ink" aria-hidden="true"></svg>
+</section>
+
+<!-- ═════════════ 06 GENERATE ═════════════ -->
+<section class="sheet s-gen" id="generate" data-n="06" data-name="Generate" aria-labelledby="t6">
+<div class="meta"><p class="lab"><b>Sheet 06</b> / 09 · Annotate and generate · revisions</p><p class="lab">Drag the divider · original left, rebuild right</p></div>
+<div class="col-text">
+<p class="lab"><b>06</b> Annotate · generate</p>
+<h2 class="big" id="t6">Your agent names it. UI&nbsp;DNA builds it.</h2>
+<p class="body">Your agent reads the document and records what it sees: names, roles, intent. Each reading is stored as inferred and never overwrites a measurement. Then UI&nbsp;DNA generates a React, TypeScript, Tailwind and Vite project with a Playwright suite.</p>
+<div class="patch">
+<p class="lab"><b>annotate_dna</b> · one patch from the agent</p>
+<pre>{
+  <span class="k">"path"</span>: <span class="s">"/components/2"</span>,
+  <span class="k">"set"</span>: { <span class="k">"name"</span>: <span class="s">"FeatureCard"</span> },
+  <span class="k">"provenance"</span>: {
+    <span class="k">"kind"</span>: <mark>"inferred"</mark>,
+    <span class="k">"why"</span>: <span class="s">"3 cards share one fingerprint"</span>
+  }
+}</pre>
+</div>
+</div>
+<div class="gen-fig">
+<div class="frame split" id="gen-frame" style="--split: 46%">
+<div class="lay a"><div class="mini" data-mini="full"></div></div>
+<div class="lay b"><div class="mini" data-mini="rebuild"></div></div>
+<span class="split-line"><span class="split-knob"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l-4 4 4 4M10 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></span></span>
+<span class="split-tag l">Original</span><span class="split-tag r">Rebuild</span>
+<svg class="clouds" id="clouds" aria-hidden="true"></svg>
+</div>
+<label class="sr" for="split">Move the divider between the original and the rebuild</label>
+<input type="range" class="split-range" id="split" min="0" max="100" value="46">
+</div>
+<div class="gen-side">
+<table class="revs">
+<caption class="lab"><b>Revisions</b></caption>
+<thead><tr><th>Rev</th><th>Description</th><th>By</th><th>Kind</th></tr></thead>
+<tbody>
+<tr data-rev="1"><td><i class="tri">1</i></td><td>Header and menu named <code>SiteHeader</code></td><td>agent</td><td><span class="k k-i">inferred</span></td></tr>
+<tr data-rev="2"><td><i class="tri">2</i></td><td>Three cards named <code>FeatureCard</code></td><td>agent</td><td><span class="k k-i">inferred</span></td></tr>
+<tr data-rev="3"><td><i class="tri">3</i></td><td>Illustration kept as a labeled placeholder, asset not authorized</td><td>policy</td><td><span class="k k-u">unknown</span></td></tr>
+</tbody>
+</table>
+<div class="tree">
+<p class="lab"><b>Generated</b> · ./clone</p>
+<pre><span class="d">src/</span>
+├─ App.tsx
+├─ components/
+│  ├─ SiteHeader.tsx    <i>△1</i>
+│  ├─ FeatureCard.tsx   <i>△2</i>
+│  └─ Placeholder.tsx   <i>△3</i>
+└─ tokens.css         <em>from the DNA</em>
+<span class="d">tests/</span>
+└─ behavior.spec.ts   <em>73 transitions</em>
+tailwind.config.ts
+uidna.json            <em>the document</em></pre>
+<p class="stack"><span>React</span><span>TypeScript</span><span>Tailwind</span><span>Vite</span><span>Playwright</span></p>
+</div>
+</div>
+<svg class="ink" aria-hidden="true"></svg>
+</section>
+
+<!-- ═════════════ 07 VERIFY ═════════════ -->
+<section class="sheet s-ver" id="verify" data-n="07" data-name="Verify" aria-labelledby="t7">
+<div class="meta"><p class="lab"><b>Sheet 07</b> / 09 · Verify · tolerances</p><p class="lab">Pixels, geometry, styles and replayed transitions, per page, state and viewport</p></div>
+<div class="col-text">
+<p class="lab"><b>07</b> Verify · repair</p>
+<h2 class="big" id="t7">Proof is a list of differences. Not a score.</h2>
+<p class="body">Each finding names the original value and the generated one. Your agent repairs against the DiffReport and verifies again.</p>
+<div class="fcfs">
+<div class="fcf"><span class="sym" aria-hidden="true">▦</span><span>Pixel diff</span><b>0.66 %</b><span>1280 px</span><em class="pass">pass</em></div>
+<div class="fcf"><span class="sym" aria-hidden="true">▦</span><span>Pixel diff</span><b>0.53 · 0.80 %</b><span>768 · 390</span><em class="pass">pass</em></div>
+<div class="fcf"><span class="sym" aria-hidden="true">↻</span><span>Transitions</span><b>73 / 73</b><span>replayed</span><em class="pass">pass</em></div>
+<div class="fcf"><span class="sym" aria-hidden="true">⇹</span><span>Breakpoints</span><b>3 / 3</b><span>both sides</span><em class="pass">pass</em></div>
+<div class="fcf"><span class="sym" aria-hidden="true">⌖</span><span>Findings</span><b>21</b><span>one image</span><em class="note">by design</em></div>
+</div>
+</div>
+<figure class="plot">
+<figcaption class="lab"><b>CI</b> · five verify attempts · it breaks the rebuild on purpose · pick an attempt</figcaption>
+<svg viewBox="0 0 720 470" id="plot" role="group" aria-label="Findings per verify attempt"></svg>
+<p class="readout" id="readout"></p>
+</figure>
+<svg class="ink" aria-hidden="true"></svg>
+</section>
+
+<!-- ═════════════ 08 TOOLS ═════════════ -->
+<section class="sheet s-tools" id="tools" data-n="08" data-name="Tools" aria-labelledby="t8">
+<div class="meta"><p class="lab"><b>Sheet 08</b> / 09 · Tools · pinout</p><p class="lab">Pick a pin to read its datasheet</p></div>
+<div class="col-text">
+<p class="lab"><b>08</b> Tools</p>
+<h2 class="big" id="t8">Twelve tools. One envelope.</h2>
+<p class="body">Every answer arrives as an evidence envelope: result, evidence id, evidence, limitations and unknowns. <code>uidna setup</code> registers the server with Claude Code, Codex and Cursor, shows the changes first and backs up every file.</p>
+<div class="term">
+<div class="term-bar" role="tablist" aria-label="Ways to run UI DNA"><button type="button" role="tab" data-tab="prompt" aria-selected="true">Prompt</button><button type="button" role="tab" data-tab="mcp" aria-selected="false">MCP</button><button type="button" role="tab" data-tab="cli" aria-selected="false">CLI</button><button type="button" class="copy" id="term-copy" aria-label="Copy this snippet"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 5.5v-3h-8v8h3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></button></div>
+<pre id="term-body"></pre>
+</div>
+</div>
+<figure class="chip-fig">
+<svg viewBox="0 0 640 640" id="chip" role="group" aria-label="The twelve UI DNA tools drawn as the pins of one package"></svg>
+</figure>
+<aside class="sheetdata" id="pin-data" aria-live="polite"></aside>
+<svg class="ink" aria-hidden="true"></svg>
+</section>
+
+<!-- ═════════════ 09 NOTES ═════════════ -->
+<section class="sheet s-end" id="notes" data-n="09" data-name="Notes" aria-labelledby="t9">
+<div class="meta"><p class="lab"><b>Sheet 09</b> / 09 · Notes · assembly · end of set</p><p class="lab">Scan interfaces you own or are allowed to analyze</p></div>
+<div class="end-notes">
+<p class="lab"><b>09</b> Notes</p>
+<h2 class="sr" id="t9">Notes, assembly and links</h2>
+<p class="lab sub"><b>General notes</b></p>
+<ol class="gn caps">
+<li>Every non-GET request is blocked while exploring, beacons included.</li>
+<li>Crawls stay on one origin, honor robots.txt and are rate-limited.</li>
+<li>Secrets are redacted before anything is stored.</li>
+<li>Never gets around logins, CAPTCHAs or access controls. Never stores credentials.</li>
+</ol>
+<p class="lab sub"><b>Exclusions</b></p>
+<ul class="ex">
+<li>iframe content and shadow DOM are not entered.</li>
+<li>Inline SVG markup becomes a placeholder.</li>
+<li>Crawls follow same-origin links, up to 50 pages.</li>
+<li>Server responses to form submissions are never observed.</li>
+<li>Container queries, clamp() and vw values are not breakpoints.</li>
+<li>The generated project is a baseline your agent repairs.</li>
+</ul>
+</div>
+<div class="assembly">
+<p class="lab sub"><b>Assembly</b> · Node 20.19 or newer</p>
+<ol class="asm">
+<li><i>1</i><div><p>Install the CLI</p><code>npm install -g @rohzzn/uidna</code></div><button type="button" class="copy" data-copy="npm install -g @rohzzn/uidna" aria-label="Copy: npm install -g @rohzzn/uidna"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 5.5v-3h-8v8h3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></button></li>
+<li><i>2</i><div><p>Install Chromium</p><code>npx playwright install chromium</code></div><button type="button" class="copy" data-copy="npx playwright install chromium" aria-label="Copy: npx playwright install chromium"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 5.5v-3h-8v8h3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></button></li>
+<li><i>3</i><div><p>Register with your agents</p><code>uidna setup</code></div><button type="button" class="copy" data-copy="uidna setup" aria-label="Copy: uidna setup"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 5.5v-3h-8v8h3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></button></li>
+<li><i>4</i><div><p>Check the setup</p><code>uidna doctor</code></div><button type="button" class="copy" data-copy="uidna doctor" aria-label="Copy: uidna doctor"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 5.5v-3h-8v8h3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></button></li>
+</ol>
+<div class="refs">
+<p class="lab sub"><b>Reference drawings</b></p>
+<a href="https://github.com/rohzzn/uidna/blob/main/docs/tools.md"><span>Tool catalog</span><em>docs/tools.md</em></a>
+<a href="https://github.com/rohzzn/uidna/blob/main/docs/ui-dna.md"><span>Document reference</span><em>docs/ui-dna.md</em></a>
+<a href="https://github.com/rohzzn/uidna/blob/main/skills/uidna/SKILL.md"><span>Agent skill</span><em>SKILL.md</em></a>
+<a href="https://github.com/rohzzn/uidna/blob/main/CHANGELOG.md"><span>Changelog</span><em>CHANGELOG.md</em></a>
+<a href="https://github.com/rohzzn/uidna/blob/main/SECURITY.md"><span>Security</span><em>SECURITY.md</em></a>
+<a href="https://github.com/rohzzn/uidna/blob/main/DISCLAIMER.md"><span>Disclaimer</span><em>DISCLAIMER.md</em></a>
+</div>
+</div>
+<div class="end-cta">
+<p class="big xl">See an interface you like. Rebuild it <mark>with proof.</mark></p>
+<span class="install"><span><b>$</b> npm install -g @rohzzn/uidna</span><button type="button" class="copy" data-copy="npm install -g @rohzzn/uidna" aria-label="Copy the install command"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 5.5v-3h-8v8h3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></button></span>
+<div class="row"><a class="btn" href="https://github.com/rohzzn/uidna">GitHub <span aria-hidden="true">↗</span></a><a class="btn btn-o" href="https://www.npmjs.com/package/@rohzzn/uidna">npm <span aria-hidden="true">↗</span></a><a class="btn btn-o" href="https://www.npmjs.com/package/@rohzzn/uidna-schema">Schema <span aria-hidden="true">↗</span></a></div>
+<p class="stamp" aria-hidden="true"><span>End of set</span><span>MIT · rohzzn</span></p>
+</div>
+<svg class="ink" aria-hidden="true"></svg>
+</section>
+
+</main>
+
+<footer class="dock" id="dock">
+<div class="strand">
+<canvas id="helix" aria-hidden="true"></canvas>
+<p class="strand-key lab" aria-label="Helix key"><span><i class="b-m"></i>measured</span><span><i class="b-o"></i>observed</span><span><i class="b-i"></i>inferred</span><span><i class="b-u"></i>unknown</span></p>
+</div>
+<nav class="locus" aria-label="Sheets"><div class="loci" id="loci"></div><span class="win" id="win" aria-hidden="true"></span></nav>
+<div class="dock-tools">
+<button type="button" class="xr-btn" id="xr-btn" aria-pressed="false"><span class="xr-dot"></span>X-ray</button>
+<a href="https://github.com/rohzzn/uidna">GitHub</a>
+<a href="https://www.npmjs.com/package/@rohzzn/uidna">npm</a>
+</div>
+</footer>
+</div>
+
+<div class="xr-box" id="xr-box" aria-hidden="true"></div>
+<div class="xr-card" id="xr-card" aria-hidden="true"></div>
+<div class="xh xh-x" id="xh-x" aria-hidden="true"></div>
+<div class="xh xh-y" id="xh-y" aria-hidden="true"></div>
+
+<script src="site.js"></script>
+</body>
+</html>

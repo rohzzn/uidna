@@ -15,6 +15,7 @@ export default tseslint.config(
       "uidna-out/**",
       "src/generate/templates/**",
       "docs/**",
+      "website/**",
     ],
   },
   eslint.configs.recommended,
